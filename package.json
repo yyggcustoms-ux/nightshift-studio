@@ -1,0 +1,11 @@
+{
+  "name": "nightshift-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx wrangler@3 pages dev public --compatibility-date=2024-09-23",
+    "agent:content": "node agents/quill-content.mjs && node agents/echo-social.mjs && node agents/beacon-seo.mjs",
+    "agent:ledger": "node agents/ledger-revenue.mjs",
+    "agent:sentinel": "node agents/sentinel-health.mjs"
+  }
+}

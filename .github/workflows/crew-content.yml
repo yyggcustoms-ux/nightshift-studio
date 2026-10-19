@@ -1,0 +1,44 @@
+name: "Crew: Scout, Quill, Echo, Beacon (daily marketing)"
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: nightshift-crew
+  cancel-in-progress: false
+env:
+  SITE_URL: ${{ vars.SITE_URL }}
+  OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+  FROM_EMAIL: ${{ vars.FROM_EMAIL }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  BLUESKY_HANDLE: ${{ vars.BLUESKY_HANDLE }}
+  BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+  INDEXNOW_KEY: ${{ vars.INDEXNOW_KEY }}
+jobs:
+  marketing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Scout + Quill write today's article
+        run: node agents/quill-content.mjs
+        continue-on-error: true
+      - name: Echo posts to social media
+        run: node agents/echo-social.mjs
+        continue-on-error: true
+      - name: Beacon updates sitemap and pings search engines
+        run: node agents/beacon-seo.mjs
+      - name: Save agent work to the site (triggers auto-deploy)
+        run: |
+          git config user.name "nightshift-crew"
+          git config user.email "crew@users.noreply.github.com"
+          git add -A public marketing || true
+          git diff --cached --quiet && exit 0
+          git commit -m "crew: ${{ github.workflow }} $(date -u +%F)"
+          for i in 1 2 3; do git pull --rebase origin ${{ github.ref_name }} && git push && break; sleep 5; done

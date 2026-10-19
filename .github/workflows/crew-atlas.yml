@@ -1,0 +1,39 @@
+name: "Crew: Atlas (order fulfillment)"
+on:
+  repository_dispatch:
+    types: [new-order]
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: "Stripe Checkout Session ID (cs_...) to (re)fulfill"
+        required: true
+permissions:
+  contents: write
+# No concurrency group here: GitHub drops queued runs in a group, and every order must run.
+env:
+  SITE_URL: ${{ vars.SITE_URL }}
+  OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+  FROM_EMAIL: ${{ vars.FROM_EMAIL }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  AUTO_DELIVER: ${{ vars.AUTO_DELIVER }}
+  SESSION_ID: ${{ github.event.client_payload.session_id || inputs.session_id }}
+jobs:
+  fulfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Atlas drafts the deliverable
+        run: node agents/atlas-fulfill.mjs
+      - name: Save agent work to the site (triggers auto-deploy)
+        run: |
+          git config user.name "nightshift-crew"
+          git config user.email "crew@users.noreply.github.com"
+          git add -A public marketing || true
+          git diff --cached --quiet && exit 0
+          git commit -m "crew: ${{ github.workflow }} $(date -u +%F)"
+          for i in 1 2 3; do git pull --rebase origin ${{ github.ref_name }} && git push && break; sleep 5; done

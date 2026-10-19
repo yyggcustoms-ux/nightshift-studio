@@ -1,0 +1,35 @@
+name: "Crew: Ledger (daily revenue report)"
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: nightshift-crew
+  cancel-in-progress: false
+env:
+  SITE_URL: ${{ vars.SITE_URL }}
+  OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+  FROM_EMAIL: ${{ vars.FROM_EMAIL }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  MONTHLY_GOAL: "10000"
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node agents/ledger-revenue.mjs
+      - name: Save agent work to the site (triggers auto-deploy)
+        run: |
+          git config user.name "nightshift-crew"
+          git config user.email "crew@users.noreply.github.com"
+          git add -A public marketing || true
+          git diff --cached --quiet && exit 0
+          git commit -m "crew: ${{ github.workflow }} $(date -u +%F)"
+          for i in 1 2 3; do git pull --rebase origin ${{ github.ref_name }} && git push && break; sleep 5; done
