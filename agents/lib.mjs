@@ -7,7 +7,7 @@ import { ai } from "../lib/ai.js";
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const PUBLIC = join(ROOT, "public");
 export const env = process.env;
-export const SITE = (env.SITE_URL || "https://nightshift-studio.pages.dev").replace(/\/$/, "");
+export const SITE = (env.SITE_URL || "https://nightshift-studio-9in.pages.dev").replace(/\/$/, "");
 
 export async function readJSON(path, fallback) {
   try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; }
