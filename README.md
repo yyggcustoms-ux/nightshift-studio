@@ -59,7 +59,7 @@ Then go to the Pages project → **Settings → Variables and Secrets**, add the
 | `GITHUB_REPO` | `yourname/nightshift-studio` |
 | `GITHUB_TOKEN` | the fine-grained token |
 | `RESEND_API_KEY` | Resend key |
-| `RESEND_AUDIENCE_ID` | Resend audience ID |
+| `OWNER_EMAIL` | your email (plain variable, not secret) — newsletter sign-ups are sent here |
 
 ### 7 · Put the keys in GitHub (10 min)
 Repo → **Settings → Secrets and variables → Actions**.
