@@ -4,29 +4,37 @@
 import { join } from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
 import { PRODUCTS, money } from "../public/js/catalog.js";
-import { claude, extractJSON, log, readJSON, email, env, esc, PUBLIC, ROOT, SITE, today } from "./lib.mjs";
+import { ask, sections, log, readJSON, email, env, esc, PUBLIC, ROOT, SITE, today } from "./lib.mjs";
 
 const posts = await readJSON(join(PUBLIC, "blog", "posts.json"), []);
 const latest = posts[0];
 const featured = PRODUCTS[new Date().getUTCDate() % PRODUCTS.length]; // rotate a featured service daily
 
-const out = extractJSON(await claude({
-  maxTokens: 3000,
+const out = sections(await ask({
+  maxTokens: 2500,
   system: "You are Echo, social media manager for Nightshift Studio (an AI-powered done-for-you studio for brand, marketing, e-commerce and career services). You write native, scroll-stopping posts for each platform. Never invent customer results, testimonials or statistics. No hashtag spam.",
   prompt: `Today's content:
 ${latest ? `- New article: "${latest.title}" — ${latest.excerpt} — ${SITE}/blog/${latest.slug}.html` : "- (no article today)"}
 - Featured service: ${featured.name}, ${money(featured.price)} (was ${money(featured.compareAt)}), delivered in ${featured.delivery} — ${featured.short} — ${SITE}/#/product/${featured.id}
 - Launch code NIGHTOWL = 10% off.
 
-Return only JSON with these keys:
-"bluesky": max 260 characters including the article link (or the product link if no article),
-"x": max 270 characters,
-"threads": max 450 characters,
-"linkedin": 120–200 words, professional, value-first,
-"instagram": caption with line breaks + up to 8 relevant hashtags, plus "[Visual: ...]" describing the image/carousel,
-"tiktok": a 30-second video script with HOOK / BODY / CTA and on-screen text,
-"pinterest": pin title + description,
-"reddit": a genuinely helpful post for a relevant subreddit (name it) that teaches the article's key idea WITHOUT links or self-promotion (Reddit bans promo).`,
+Write one post per platform. Reply in exactly this format, with each heading on its own line, nothing else:
+=== bluesky ===
+(max 260 characters, including the article link, or the product link if there's no article)
+=== x ===
+(max 270 characters)
+=== threads ===
+(max 450 characters)
+=== linkedin ===
+(120–200 words, professional, value-first)
+=== instagram ===
+(caption with line breaks + up to 8 relevant hashtags, then a line "[Visual: ...]" describing the image or carousel)
+=== tiktok ===
+(30-second video script with HOOK / BODY / CTA and on-screen text)
+=== pinterest ===
+(pin title + description)
+=== reddit ===
+(a genuinely helpful post for a named subreddit that teaches the key idea WITHOUT links or self-promotion, because Reddit bans promo)`,
 }));
 
 // ---- Auto-post to Bluesky ----
@@ -53,7 +61,7 @@ async function postToBluesky(text) {
 }
 
 let posted = false;
-try { posted = await postToBluesky(out.bluesky); } catch (e) { console.error(e.message); }
+try { if (out.bluesky) posted = await postToBluesky(out.bluesky.slice(0, 300)); } catch (e) { console.error(e.message); }
 
 // ---- Queue for the other platforms ----
 const md = Object.entries(out).map(([k, v]) => `## ${k}\n\n${v}\n`).join("\n");

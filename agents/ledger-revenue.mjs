@@ -1,7 +1,7 @@
 // Ledger: emails the owner a daily revenue report with progress toward the monthly goal
 // and AI recommendations for what to push next. Revenue numbers are never published on the site.
 import { PRODUCTS } from "../public/js/catalog.js";
-import { stripe, email, claude, log, env, esc } from "./lib.mjs";
+import { stripe, email, ask, log, env, esc } from "./lib.mjs";
 
 const GOAL = Number(env.MONTHLY_GOAL || 10000);
 const now = new Date();
@@ -40,7 +40,7 @@ Day ${dayOfMonth} of ${daysIn}.`;
 
 let advice = "";
 try {
-  advice = await claude({
+  advice = await ask({
     maxTokens: 900,
     system: "You are Ledger, a sharp e-commerce growth analyst. Give 3 specific, actionable recommendations for today (pricing, promotions, which service to push on social, bundles, outreach). Be realistic and concise. Plain text bullets.",
     prompt: `Business: Nightshift Studio, done-for-you AI+human creative services.\nServices: ${PRODUCTS.map((p) => `${p.name} $${p.price / 100}`).join(", ")}\n\nNumbers:\n${facts}`,

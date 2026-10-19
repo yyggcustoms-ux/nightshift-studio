@@ -1,6 +1,7 @@
 // POST /api/chat — Nova, the AI sales concierge.
 import { PRODUCTS, ADDONS, BRAND, money } from "../../public/js/catalog.js";
-import { json, claude } from "../../lib/server.js";
+import { json } from "../../lib/server.js";
+import { ai } from "../../lib/ai.js";
 
 const SYSTEM = `You are Nova, the friendly AI sales concierge for ${BRAND.name} ("${BRAND.tagline}").
 We sell done-for-you services drafted by AI agents and reviewed by a human editor before delivery.
@@ -24,7 +25,7 @@ export async function onRequestPost({ request, env }) {
   while (clean.length && clean[0].role !== "user") clean.shift();
   if (!clean.length) return json({ error: "No message" }, 400);
   try {
-    return json({ reply: await claude(env, { system: SYSTEM, messages: clean, maxTokens: 300 }) });
+    return json({ reply: await ai(env, { system: SYSTEM, messages: clean, maxTokens: 350 }) });
   } catch (e) {
     return json({ error: e.message }, 503); // the browser falls back to built-in answers
   }

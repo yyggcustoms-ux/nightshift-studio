@@ -2,6 +2,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ai } from "../lib/ai.js";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const PUBLIC = join(ROOT, "public");
@@ -26,22 +27,21 @@ export async function log(agent, msg) {
   console.log(`[${agent}] ${msg}`);
 }
 
-export async function claude({ system, prompt, maxTokens = 4000, model = env.CLAUDE_MODEL || "claude-sonnet-5-5" }) {
-  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: prompt }] }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Claude: ${data.error?.message || res.status}`);
-  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+// AI text generation. Free by default (Cloudflare Workers AI), see lib/ai.js.
+export const ask = ({ system, prompt, maxTokens = 2000 }) => ai(env, { system, prompt, maxTokens });
+
+// Split "=== key ===" blocks into an object. Plain-text sections are far more reliable
+// than asking open models for big JSON blobs full of line breaks and quotes.
+export function sections(text) {
+  const out = {};
+  for (const m of text.matchAll(/===\s*([a-z_]+)\s*===\s*\n([\s\S]*?)(?=\n===\s*[a-z_]+\s*===|$)/gi)) out[m[1].toLowerCase()] = m[2].trim();
+  return out;
 }
 
 // Pull the first JSON object out of a model reply (tolerates ```json fences).
 export function extractJSON(text) {
   const start = text.indexOf("{"), end = text.lastIndexOf("}");
-  return JSON.parse(text.slice(start, end + 1));
+  try { return JSON.parse(text.slice(start, end + 1)); } catch { return null; }
 }
 
 export async function stripe(path) {

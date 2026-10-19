@@ -1,96 +1,98 @@
-# 🌙 Nightshift Studio — "The studio that never sleeps"
+# Nightshift Studio — open all night
 
-An AI-powered, done-for-you services store. It sells brand kits, resumes, website copy, content calendars, email sequences, store listings and business plans. A crew of 8 AI agents runs the shop, and you approve the work before it's delivered.
+A done-for-you services shop (resumes, brand kits, website copy, content calendars, email sequences, listings, business plans) run by 8 AI agents, with you approving each order before it goes out.
 
-| Agent | Job | When |
+**Running cost: $0/month.** Nothing to pay up front, no subscriptions, no credit card on any account except the bank details Stripe needs to pay you.
+
+| Piece | Service | Cost |
 |---|---|---|
-| 💬 **Nova** | Sales concierge chat on every page | Live, 24/7 |
-| 🛠️ **Atlas** | Drafts the full deliverable for every paid order, then emails it to you (or the customer) | Every order |
-| 🔭 **Scout** | Picks a high-intent topic people are Googling | Daily |
-| ✒️ **Quill** | Writes and publishes an SEO blog article (free Google traffic) | Daily |
-| 📣 **Echo** | Auto-posts to Bluesky and emails you ready-to-paste posts for X, IG, TikTok, LinkedIn, Threads, Pinterest and Reddit | Daily |
-| 🛰️ **Beacon** | Rebuilds the sitemap and pings search engines (IndexNow) | Daily |
-| 📊 **Ledger** | Emails you a revenue report, progress toward $10k/month and 3 growth moves | Daily |
-| 🛡️ **Sentinel** | Health-checks the site and checkout, and alerts you if something breaks | Every 6h |
+| Website + checkout API | Cloudflare Pages | Free |
+| AI (chat, writing, orders) | Cloudflare Workers AI, free daily allowance; Google Gemini free tier as backup | Free |
+| Agents' schedule | GitHub Actions (public repo) | Free |
+| Email | Resend (3,000/month) | Free |
+| Auto-posting | Bluesky | Free |
+| Payments | Stripe | No fees until you sell. Each sale has ~2.9% + 30¢ taken out before it reaches your bank |
+| Web address | `your-name.pages.dev` | Free |
 
-Every agent writes what it did to `public/data/agents.json`, which drives the live console on the homepage and the **AI Crew** page.
+### Free-tier limits to know about
+- **Cloudflare AI** gives 10,000 "neurons" a day, reset at midnight UTC. That's roughly: the daily blog post and social posts, plus around 50 chat replies, plus about 3 orders' worth of drafts. When it runs out, the agents switch to **Gemini's free tier** automatically (if you added that key). Nova's chat falls back to built-in answers.
+- If a draft still fails on a very busy day, GitHub emails you. Re-run it the next day from **Actions → Crew: Atlas → Run workflow** with the order's `cs_…` ID.
+- Once you're selling several orders a day, upgrading AI is optional and paid for by sales. Add an `ANTHROPIC_API_KEY` secret and the agents use Claude for higher quality, with no code changes.
 
-## What it costs
+---
 
-| Thing | Cost |
+## Go-live checklist
+
+### 1 · GitHub (5 min)
+1. Create a free account at github.com and a **public** repository named `nightshift-studio`.
+2. Push this code to it.
+
+### 2 · Cloudflare: website + free AI (15 min)
+1. Create a free account at cloudflare.com.
+2. **Workers & Pages → Create → Pages → Connect to Git** → pick the repo. Leave the build command blank; set the build output directory to `public`. Deploy. Your site is live at `https://<name>.pages.dev`.
+3. **Turn on the free AI for the website:** your Pages project → **Settings → Bindings → Add → Workers AI**, variable name `AI`. Redeploy.
+4. **Make a free AI key for the agents:** My Profile → **API Tokens → Create Token → "Workers AI" template** → Create. Copy the token. Also copy your **Account ID** (right side of the Workers & Pages overview page).
+
+### 3 · Stripe: payments (15 min)
+1. Create a free account at stripe.com. Add your bank details so you can get paid. Stay in **Test mode**.
+2. **Settings → Payment methods:** turn on Cards, Apple Pay, Google Pay, Cash App Pay and PayPal (if PayPal isn't offered for your account, ask and I'll add a separate PayPal button).
+3. **Product catalog → Coupons:** create a 10% off coupon with promotion code `NIGHTOWL`.
+4. **Developers → API keys:** copy the **Secret key** (`sk_test_…`).
+5. **Developers → Webhooks → Add endpoint:** `https://<name>.pages.dev/api/webhook`, events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Copy the **Signing secret** (`whsec_…`).
+
+### 4 · Resend: email (5 min)
+Create a free account at resend.com **with the email you want orders sent to**. Copy an **API key**, and the **Audience ID** under Audiences.
+
+### 5 · Optional free extras (5 min)
+- **Gemini backup AI:** create a free API key at aistudio.google.com. If it asks for billing, skip it; the site works without it. Note: Google may use free-tier requests to improve its products.
+- **Bluesky auto-posting:** bsky.app → Settings → Privacy and security → **App passwords**.
+
+### 6 · Put the keys in Cloudflare (10 min)
+First make a GitHub key: github.com → Settings → Developer settings → **Fine-grained tokens** → only the `nightshift-studio` repo → **Contents: Read and write**.
+
+Then go to the Pages project → **Settings → Variables and Secrets**, add these as **Secret**, and redeploy:
+
+| Name | Value |
 |---|---|
-| Hosting (Cloudflare Pages + Functions) | **Free** |
-| Agents (GitHub Actions) | **Free** |
-| Email (Resend, 3,000/mo) | **Free** |
-| Bluesky auto-posting | **Free** |
-| Stripe | No monthly fee. ~2.9% + 30¢ per card sale |
-| Claude API (the agents' brains) | Pay-as-you-go. Roughly **$5–15/month** at launch, plus a few cents per order |
-| Custom domain (optional) | ~$10/year. `yourname.pages.dev` is free |
+| `STRIPE_SECRET_KEY` | `sk_test_…` |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_…` |
+| `GITHUB_REPO` | `yourname/nightshift-studio` |
+| `GITHUB_TOKEN` | the fine-grained token |
+| `RESEND_API_KEY` | Resend key |
+| `RESEND_AUDIENCE_ID` | Resend audience ID |
 
-The only unavoidable cost is the AI API. Without a key, Nova still answers using built-in replies, but Atlas, Quill and the others can't write anything.
+### 7 · Put the keys in GitHub (10 min)
+Repo → **Settings → Secrets and variables → Actions**.
 
-## Launch checklist (about 1 hour)
+**Secrets:** `CF_API_TOKEN`, `STRIPE_SECRET_KEY`, `RESEND_API_KEY`, and optionally `GEMINI_API_KEY` and `BLUESKY_APP_PASSWORD`.
 
-### 1. Put the code on GitHub
-Create a new repo (public = unlimited free Actions minutes) and push this folder.
+**Variables:**
 
-### 2. Stripe (payments)
-1. Sign up at stripe.com and activate your account (bank details for payouts).
-2. **Settings → Payment methods**: turn on **Cards, Apple Pay, Google Pay, Cash App Pay, PayPal** and Link. Checkout shows every enabled method automatically, with no code change. *(PayPal through Stripe depends on your country and account. If it isn't offered to you, ask me and I'll add a separate PayPal button.)*
-3. **Products → Coupons**: create a 10%-off coupon and a promotion code `NIGHTOWL` (the site advertises it).
-4. **Developers → API keys**: copy the **Secret key** (`sk_live_…`; use `sk_test_…` while testing).
+| Name | Value |
+|---|---|
+| `CF_ACCOUNT_ID` | your Cloudflare account ID |
+| `SITE_URL` | `https://<name>.pages.dev` |
+| `OWNER_EMAIL` | the email you signed up to Resend with |
+| `AUTO_DELIVER` | `false` |
+| `BLUESKY_HANDLE` | `you.bsky.social` (optional) |
+| `INDEXNOW_KEY` | any 32 random letters and numbers |
 
-### 3. Cloudflare Pages (hosting, free)
-1. dash.cloudflare.com → **Workers & Pages → Create → Pages → Connect to Git** → pick your repo.
-2. Build command: *(none)*. Build output directory: `public`.
-3. **Settings → Environment variables** (mark the keys as *secret*):
-   - `STRIPE_SECRET_KEY`
-   - `STRIPE_WEBHOOK_SECRET` (from step 4)
-   - `ANTHROPIC_API_KEY` (console.anthropic.com)
-   - `GITHUB_REPO` = `yourname/your-repo`
-   - `GITHUB_TOKEN`: a fine-grained GitHub token for this repo with **Contents: Read & write**
-   - `RESEND_API_KEY`, `RESEND_AUDIENCE_ID` (for newsletter signups)
-4. Deploy. Every push (including the agents' commits) redeploys automatically.
+Then go to **Actions**, enable workflows, and run **"Crew: Scout, Quill, Echo, Beacon"** once.
 
-### 4. Stripe webhook (wakes Atlas when someone pays)
-Stripe → **Developers → Webhooks → Add endpoint**
-- URL: `https://YOUR-SITE.pages.dev/api/webhook`
-- Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`
-- Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in Cloudflare, then redeploy.
+### 8 · Test, then go live
+1. On your site, order something and pay with card `4242 4242 4242 4242`, any future date, any CVC. Within ~5 minutes Atlas should email you the draft.
+2. Change `supportEmail` in `public/js/catalog.js` to your real email, and review the Terms, Privacy and Refunds text in `public/js/app.js`.
+3. In Stripe, switch off Test mode, then redo steps 3.4–3.5 with live keys and swap them into Cloudflare. Redeploy.
+4. Add the site to Google Search Console (free) and submit `/sitemap.xml`.
 
-### 5. GitHub Actions (the agent crew)
-Repo → **Settings → Secrets and variables → Actions**
-- **Secrets:** `ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `RESEND_API_KEY`, `BLUESKY_APP_PASSWORD`
-- **Variables:**
-  - `SITE_URL` = `https://your-site.pages.dev`
-  - `OWNER_EMAIL` = your email (orders and reports go here)
-  - `FROM_EMAIL` = `Nightshift Studio <hello@yourdomain.com>` (domain verified in Resend)
-  - `BLUESKY_HANDLE` = `yourbrand.bsky.social`
-  - `INDEXNOW_KEY` = any random 32-character string of letters and numbers
-  - `AUTO_DELIVER` = `false`: you review every order before it's sent (recommended). Set to `true` to have Atlas email customers directly.
+---
 
-Then go to **Actions** → run *"Crew: Scout, Quill, Echo, Beacon"* once by hand to publish your first article.
-
-### 6. Before you go live
-- Change `supportEmail` in `public/js/catalog.js` and the legal text on the Terms, Privacy and Refunds pages.
-- Place a test order with `sk_test_` keys and card `4242 4242 4242 4242`. Confirm Atlas emails you the draft.
-- Swap in live keys.
-- Submit `https://your-site/sitemap.xml` in Google Search Console (free).
-
-## Running your shop (≈15 min/day)
-1. **Orders:** Atlas emails you each finished draft. Skim it, fill any `[PLACEHOLDER]`, hit Reply (it goes to the customer). Done.
-2. **Social:** Echo emails today's posts. Paste them into X, Instagram, TikTok and LinkedIn (those platforms charge for or restrict posting through their APIs, so they're drafts). Bluesky is posted automatically.
-3. **Ledger's report** tells you what's selling and what to push.
-
-## Path to $10k/month
-$10k ≈ **about 70 orders/month at the ~$140 average order value** (2–3 orders a day). Traffic is the lever:
-- **Content compounding:** Quill's daily articles take 2–6 months to rank on Google; this is the long-term free engine.
-- **Show up daily on TikTok/Reels** with Echo's scripts. Short video is the fastest free traffic for these services.
-- **Be genuinely helpful on Reddit** (r/resumes, r/smallbusiness, r/Entrepreneur, r/EtsySellers) using Echo's no-link posts.
-- **Real reviews:** after each delivery, ask happy customers for a review, then add real testimonials to the homepage. The site deliberately has no fake reviews or fake "someone just bought" pop-ups. Those are illegal under the FTC rules on fake reviews and kill trust.
-- **Raise prices** once you have 10+ reviews. The add-ons (rush, revisions, call) and the Launch Bundle are your average-order-value boosters.
+## Daily routine (~15 min)
+- **Orders:** Atlas emails each draft. Read it, fill any `[PLACEHOLDER]`, hit Reply to send it to the customer. (Resend's free tier without your own domain can only email *you*, which is why you forward drafts yourself. That's also the safer way to run it.)
+- **Social:** Echo emails the day's posts. Paste them into TikTok, Instagram, X and LinkedIn. Bluesky posts automatically.
+- **Sales:** Ledger emails a revenue report each morning.
 
 ## Local preview
 ```bash
-npx wrangler pages dev public     # serves the site + /api functions; put keys in .dev.vars
+npx wrangler pages dev public     # put keys in .dev.vars
 ```

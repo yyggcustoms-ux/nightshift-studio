@@ -1,7 +1,7 @@
 // Atlas: drafts the deliverable for every paid order and sends it for review (or straight to the customer).
 // Triggered by the Stripe webhook → GitHub repository_dispatch, with SESSION_ID in the environment.
 import { ADDONS, findProduct } from "../public/js/catalog.js";
-import { claude, stripe, email, log, markdown, env, esc } from "./lib.mjs";
+import { ask, stripe, email, log, markdown, env, esc } from "./lib.mjs";
 
 const sessionId = env.SESSION_ID;
 if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId || "")) throw new Error("SESSION_ID missing or invalid");
@@ -35,17 +35,20 @@ Do not include legal, medical or financial guarantees. Financial projections mus
 const deliverables = [];
 for (const { product, addons } of ordered) {
   const answers = product.brief.map((f) => `${f.label}\n${brief[`${product.id}__${f.key}`] || "(not provided)"}`).join("\n\n");
-  const prompt = `Client: ${customerName}
+  const context = `Client: ${customerName}
 Service purchased: ${product.name}
-The deliverable MUST include:
-${product.includes.map((i) => `- ${i}`).join("\n")}
+Everything the full deliverable covers: ${product.includes.join("; ")}
 ${addons.length ? `Add-ons purchased: ${addons.map((a) => a.name).join(", ")}` : ""}
 
 Client brief:
-${answers}
-
-Write the full deliverable now. Start with a short friendly note to ${customerName.split(" ")[0]} (2–3 sentences), then the deliverable.`;
-  const body = await claude({ system: SYSTEM, prompt, maxTokens: 12000 });
+${answers}`;
+  // Free open models do their best work on one focused section at a time, so build it piece by piece.
+  const parts = [await ask({ system: SYSTEM, maxTokens: 300, prompt: `${context}\n\nWrite a warm 2–3 sentence note to ${customerName.split(" ")[0]} introducing their ${product.name}. Plain text only.` })];
+  for (const item of product.includes) {
+    const section = await ask({ system: SYSTEM, maxTokens: 2500, prompt: `${context}\n\nWrite ONLY this section of the deliverable, complete and final-quality: "${item}". Start with a level-2 Markdown heading. Don't repeat other sections.` });
+    parts.push(section.trim().startsWith("#") ? section : `## ${item}\n\n${section}`);
+  }
+  const body = parts.join("\n\n");
   deliverables.push({ product, addons, body });
   await log("atlas", `Drafted a ${product.name} for order #${orderRef} (${body.split(/\s+/).length.toLocaleString()} words)`);
 }

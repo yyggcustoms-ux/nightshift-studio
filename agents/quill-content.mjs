@@ -2,33 +2,48 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PRODUCTS, money } from "../public/js/catalog.js";
-import { claude, extractJSON, log, markdown, readJSON, writeJSON, esc, PUBLIC, SITE, today } from "./lib.mjs";
+import { ask, sections, log, markdown, readJSON, writeJSON, esc, PUBLIC, SITE, today } from "./lib.mjs";
 
 const postsPath = join(PUBLIC, "blog", "posts.json");
 const posts = await readJSON(postsPath, []);
 const catalog = PRODUCTS.map((p) => `${p.id}: ${p.name} (${money(p.price)}) — ${p.short}`).join("\n");
 
 // ---- Scout: choose today's topic ----
-const scout = extractJSON(await claude({
-  maxTokens: 800,
+const picked = sections(await ask({
+  maxTokens: 400,
   system: "You are Scout, an SEO and trend researcher for Nightshift Studio, which sells done-for-you brand, marketing, e-commerce and career services to small-business owners, side hustlers and job seekers.",
-  prompt: `Our services:\n${catalog}\n\nAlready published (don't repeat or closely overlap):\n${posts.map((p) => "- " + p.title).join("\n") || "(none yet)"}\n\nToday is ${today()}. Pick ONE high-intent, long-tail topic that our customers are actively Googling, timely for this season, which naturally leads to one of our services. Rotate between careers, branding, social media, e-commerce, email marketing, and starting a business.\nReturn only JSON: {"topic": "...", "keyword": "primary search phrase", "angle": "why this is useful now", "product_id": "one id from the list"}`,
+  prompt: `Our services:\n${catalog}\n\nAlready published (don't repeat or closely overlap):\n${posts.map((p) => "- " + p.title).join("\n") || "(none yet)"}\n\nToday is ${today()}. Pick ONE high-intent, long-tail topic that our customers are actively Googling, timely for this season, which naturally leads to one of our services. Rotate between careers, branding, social media, e-commerce, email marketing, and starting a business.
+Reply in exactly this format, nothing else:
+=== topic ===
+(the topic)
+=== keyword ===
+(primary search phrase)
+=== angle ===
+(why this is useful now)
+=== product_id ===
+(one id from the list)`,
 }));
+const scout = { topic: picked.topic || "How to describe your small business in one sentence", keyword: picked.keyword || picked.topic || "small business tagline ideas", angle: picked.angle || "", product_id: (picked.product_id || "").trim() };
 await log("scout", `Picked today's topic: "${scout.keyword}"`);
 
 // ---- Quill: write the article ----
-const product = PRODUCTS.find((p) => p.id === scout.product_id) || PRODUCTS[0];
-const article = extractJSON(await claude({
-  maxTokens: 6000,
-  system: "You are Quill, Nightshift Studio's senior content writer. You write genuinely useful, specific, skimmable articles that rank on Google and earn trust. No fluff, no invented statistics, studies or quotes.",
-  prompt: `Write a 1,200–1,600 word article.
-Topic: ${scout.topic}
+const product = PRODUCTS.find((p) => scout.product_id.includes(p.id)) || PRODUCTS[new Date().getUTCDate() % PRODUCTS.length];
+const QUILL = "You are Quill, Nightshift Studio's senior content writer. You write genuinely useful, specific, skimmable articles that rank on Google and earn trust. No fluff, no invented statistics, studies or quotes.";
+const meta = sections(await ask({
+  maxTokens: 300, system: QUILL,
+  prompt: `Article topic: ${scout.topic}\nPrimary keyword: ${scout.keyword}\nReply in exactly this format, nothing else:\n=== title ===\n(a compelling title containing the keyword, under 65 characters)\n=== excerpt ===\n(one-sentence meta description under 155 characters)\n=== tag ===\n(one-word category)`,
+}));
+const title = (meta.title || scout.topic).replace(/^["#\s]+|["\s]+$/g, "");
+const body = await ask({
+  maxTokens: 3500, system: QUILL,
+  prompt: `Write a 1,200–1,600 word article titled "${title}".
 Primary keyword: ${scout.keyword}
 Angle: ${scout.angle}
-Use the keyword in the title, the first paragraph and one H2. Use H2/H3 headings, short paragraphs, bulleted steps and a concrete example or template the reader can copy.
+Use the keyword in the first paragraph and one H2. Use H2/H3 headings, short paragraphs, bulleted steps and a concrete example or template the reader can copy.
 Near the end, include one natural, non-pushy paragraph mentioning that Nightshift Studio's ${product.name} (${money(product.price)}, delivered in ${product.delivery}) can do this for them, linking to [${product.name}](/#/product/${product.id}).
-Return only JSON: {"title": "...", "slug": "url-slug", "excerpt": "1-sentence meta description under 155 chars", "tag": "one word category", "markdown": "full article body in Markdown without the H1 title"}`,
-}));
+Output only the article body in Markdown. Do not include the title as a heading.`,
+});
+const article = { title, excerpt: (meta.excerpt || scout.angle || title).slice(0, 160), tag: (meta.tag || "Guide").split(/\s/)[0], markdown: body.replace(/^#\s.*\n/, "") };
 
 const slug = (article.slug || article.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70);
 const url = `${SITE}/blog/${slug}.html`;
