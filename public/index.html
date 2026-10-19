@@ -2,35 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nightshift Studio — Done-for-you brand, copy & career services in 24–48h</title>
-  <meta name="description" content="Nightshift Studio is an AI-powered creative studio that works around the clock. Resumes, brand kits, website copy, content calendars and business plans — delivered in 24–48 hours, reviewed by a human." />
-  <meta property="og:title" content="Nightshift Studio — The studio that never sleeps" />
-  <meta property="og:description" content="Done-for-you brand, copy & career services delivered in 24–48 hours." />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Nightshift Studio</title>
+  <meta name="description" content="Order tonight, wake up to it done. Resumes, brand kits, website copy, content calendars and business plans, drafted overnight and checked by a person before delivery." />
+  <meta property="og:title" content="Nightshift Studio — open all night" />
+  <meta property="og:description" content="Order tonight, wake up to it done. Done-for-you brand, copy and career work in 24–48 hours." />
   <meta property="og:type" content="website" />
-  <meta name="theme-color" content="#0b0b1a" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌙</text></svg>" />
+  <meta name="theme-color" content="#0f121a" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230f121a'/%3E%3Cpath d='M21 6a10 10 0 1 0 5 17A11 11 0 0 1 21 6z' fill='%23ffb03b'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=Caveat:wght@500;700&family=IBM+Plex+Mono:wght@500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
-  <div class="stars" aria-hidden="true"></div>
-
-  <div class="promo-bar">🌙 Launch pricing: up to 60% off every service · Code <b>NIGHTOWL</b> takes another 10% off at checkout</div>
+  <div class="promo-bar">Founding-client pricing is on. Use code <b>NIGHTOWL</b> for another 10% off.</div>
 
   <header class="nav">
-    <a href="#/" class="logo"><span class="moon">🌙</span> Nightshift<span class="accent">Studio</span></a>
+    <a href="#/" class="logo" aria-label="Nightshift Studio home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M21 5a11 11 0 1 0 6 18.5A12 12 0 0 1 21 5z" fill="#ffb03b"/></svg>
+      <span>Night<span class="accent">shift</span></span>
+    </a>
     <nav class="links" id="navlinks">
-      <a href="#/shop">Services</a>
-      <a href="#/agents">AI Crew</a>
-      <a href="#/blog">Blog</a>
+      <a href="#/shop">Work orders</a>
+      <a href="#/agents">The crew</a>
+      <a href="#/blog">Night notes</a>
       <a href="#/faq">FAQ</a>
     </nav>
     <div class="nav-actions">
-      <span class="live-pill" title="Agent operations status"><span class="dot"></span><span id="live-text">Agents online</span></span>
-      <a href="#/cart" class="cart-btn" aria-label="Cart">🛒 <span id="cart-count">0</span></a>
-      <button class="menu-btn" id="menu-btn" aria-label="Menu">☰</button>
+      <span class="shift-clock" title="Your local time"><span class="bulb"></span><span id="clock">--:--</span>&nbsp;· on shift</span>
+      <a href="#/cart" class="cart-btn" aria-label="Your order">Order <span id="cart-count">0</span></a>
+      <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">Menu</button>
     </div>
   </header>
 
@@ -39,48 +41,51 @@
   <footer class="footer">
     <div class="footer-grid">
       <div>
-        <div class="logo"><span class="moon">🌙</span> Nightshift<span class="accent">Studio</span></div>
-        <p class="muted">An AI crew that works the night shift, with a human signing off on every delivery.</p>
+        <a href="#/" class="logo">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M21 5a11 11 0 1 0 6 18.5A12 12 0 0 1 21 5z" fill="#ffb03b"/></svg>
+          <span>Night<span class="accent">shift</span> Studio</span>
+        </a>
+        <p class="muted" style="margin-top:14px;max-width:26rem">A small studio with a big night crew. Software does the overnight drafting; a person reads every page before it goes out.</p>
         <form class="newsletter" id="newsletter">
-          <input type="email" name="email" placeholder="you@email.com" required aria-label="Email" />
-          <button class="btn btn-small">Get free weekly growth tips</button>
+          <input type="email" id="nl-email" name="email" placeholder="you@email.com" required aria-label="Email" />
+          <button class="btn btn-small">Get the Sunday letter</button>
         </form>
       </div>
       <div>
         <h4>Shop</h4>
-        <a href="#/shop">All services</a>
-        <a href="#/product/launch-bundle">Launch Bundle</a>
+        <a href="#/shop">All work orders</a>
+        <a href="#/product/launch-bundle">The Launch Bundle</a>
         <a href="#/product/resume-glowup">Resume Glow-Up</a>
       </div>
       <div>
-        <h4>Company</h4>
-        <a href="#/agents">Meet the AI crew</a>
-        <a href="#/blog">Blog</a>
+        <h4>Studio</h4>
+        <a href="#/agents">The crew</a>
+        <a href="#/blog">Night notes</a>
         <a href="#/faq">FAQ</a>
       </div>
       <div>
-        <h4>Legal</h4>
+        <h4>Small print</h4>
         <a href="#/terms">Terms</a>
         <a href="#/privacy">Privacy</a>
-        <a href="#/refunds">Refund policy</a>
+        <a href="#/refunds">Refunds</a>
       </div>
     </div>
     <div class="pay-row">
-      <span>Secure checkout by Stripe</span>
-      <span class="pay">VISA</span><span class="pay">Mastercard</span><span class="pay">Amex</span><span class="pay"> Pay</span><span class="pay">G Pay</span><span class="pay">PayPal</span><span class="pay">Cash App Pay</span>
+      <span>Paid securely through Stripe —</span>
+      <span class="pay">Visa</span><span class="pay">Mastercard</span><span class="pay">Amex</span><span class="pay">Apple Pay</span><span class="pay">Google Pay</span><span class="pay">PayPal</span><span class="pay">Cash App Pay</span>
     </div>
-    <p class="muted small">© <span id="year"></span> Nightshift Studio. All rights reserved.</p>
+    <p>© <span id="year"></span> Nightshift Studio. Made at night.</p>
   </footer>
 
-  <!-- Nova: AI sales concierge -->
-  <button class="chat-fab" id="chat-fab" aria-label="Chat with Nova">💬 <span>Ask Nova</span></button>
-  <section class="chat" id="chat" hidden aria-label="Chat with Nova">
-    <header><div><b>Nova</b> <span class="muted small">AI concierge · replies instantly</span></div><button id="chat-close" aria-label="Close">✕</button></header>
+  <button class="chat-fab" id="chat-fab" aria-label="Chat with Nova"><span class="bulb"></span><span class="txt">Ask Nova</span><span aria-hidden="true">?</span></button>
+  <section class="chat paper" id="chat" hidden aria-label="Chat with Nova">
+    <header><div><b>Nova</b> <span class="small muted mono">· front desk, always open</span></div><button id="chat-close" aria-label="Close chat">Close</button></header>
     <div class="chat-log" id="chat-log"></div>
-    <form id="chat-form"><input id="chat-input" placeholder="Ask anything about our services…" autocomplete="off" /><button class="btn btn-small">Send</button></form>
+    <form id="chat-form"><input id="chat-input" placeholder="What are you working on?" autocomplete="off" aria-label="Message" /><button class="btn btn-ink btn-small">Send</button></form>
   </section>
 
   <div class="toast" id="toast" role="status"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>

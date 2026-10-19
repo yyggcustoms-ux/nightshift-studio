@@ -1,17 +1,21 @@
 import { PRODUCTS, ADDONS, BRAND, findProduct, money } from "./catalog.js";
 import { AGENTS, nextRun } from "./agents.js";
+import { initCity } from "./city.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const app = $("#app");
 const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const FREE_PERK_THRESHOLD = 15000; // $150 unlocks free unlimited revisions (enforced server-side too)
+const woNumber = (p) => "WO-" + String(PRODUCTS.indexOf(p) + 101);
+const hoursOf = (p) => parseInt(p.delivery, 10) || 48;
+const readyBy = (p) => new Date(Date.now() + hoursOf(p) * 3600e3).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
 
 /* ---------------- Cart (persisted in localStorage) ---------------- */
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let cart = store.get("ns_cart", []);
+let cart = store.get("ns_cart", []).filter((l) => findProduct(l.id));
 const saveCart = () => { store.set("ns_cart", cart); renderCartCount(); };
 const lineKey = (id, addons) => [id, ...[...addons].sort()].join("|");
 const linePrice = (l) => (findProduct(l.id).price + l.addons.reduce((s, a) => s + ADDONS[a].price, 0)) * l.qty;
@@ -23,15 +27,15 @@ function addToCart(id, addons = []) {
   const existing = cart.find((l) => l.key === key);
   existing ? existing.qty++ : cart.push({ key, id, addons, qty: 1 });
   saveCart();
-  const btn = $("#cart-count").parentElement;
+  const btn = $(".cart-btn");
   btn.classList.remove("bump"); void btn.offsetWidth; btn.classList.add("bump");
-  toast(`Added ${findProduct(id).name} to cart`);
+  toast(`Pinned to your order: ${findProduct(id).name}`);
 }
 function renderCartCount() { $("#cart-count").textContent = cart.reduce((s, l) => s + l.qty, 0); }
 
 function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2400);
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2800);
 }
 
 /* ---------------- Agent ops data (real logs written by the agents) ---------------- */
@@ -39,10 +43,10 @@ let opsCache;
 async function loadOps() {
   if (opsCache) return opsCache;
   try { opsCache = await (await fetch("/data/agents.json", { cache: "no-store" })).json(); }
-  catch { opsCache = { log: [], stats: {} }; }
+  catch { opsCache = { log: [] }; }
   return opsCache;
 }
-const agentById = (id) => AGENTS.find((a) => a.id === id) || { name: id, emoji: "⚙️", color: "#a3a1c8" };
+const agentById = (id) => AGENTS.find((a) => a.id === id) || { name: id, role: "" };
 function ago(ts) {
   const s = Math.max(1, (Date.now() - new Date(ts)) / 1000);
   if (s < 60) return `${Math.floor(s)}s ago`;
@@ -50,124 +54,130 @@ function ago(ts) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
+const punch = (ts) => new Date(ts).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 function countdown(date) {
-  if (!date) return "";
   const s = Math.max(0, Math.floor((date - Date.now()) / 1000));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return `${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s`;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
-function agentNextLabel(a) {
-  if (a.schedule.type === "live") return "Online now · responds instantly";
-  if (a.schedule.type === "event") return a.schedule.label;
-  return `Next shift in <span data-countdown="${nextRun(a.schedule).toISOString()}">${countdown(nextRun(a.schedule))}</span>`;
+function nextLabel(a) {
+  if (a.schedule.type === "live") return "on the desk now";
+  if (a.schedule.type === "event") return "on call · every order";
+  const n = nextRun(a.schedule);
+  return `in <span data-countdown="${n.toISOString()}">${countdown(n)}</span>`;
 }
-setInterval(() => document.querySelectorAll("[data-countdown]").forEach((el) => {
-  el.textContent = countdown(new Date(el.dataset.countdown));
-}), 1000);
+function tick() {
+  document.querySelectorAll("[data-countdown]").forEach((el) => (el.textContent = countdown(new Date(el.dataset.countdown))));
+  $("#clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+setInterval(tick, 1000);
 
-/* Console: replays the real activity log, then shows live status + countdowns. */
-let consoleTimer;
-async function startConsole(el) {
-  clearInterval(consoleTimer);
-  const ops = await loadOps();
-  const fmt = (d) => new Date(d).toISOString().slice(5, 16).replace("T", " ");
-  const lines = ops.log.slice(-14).map((e) => {
-    const a = agentById(e.agent);
-    return `<span class="t">${fmt(e.t)}</span> <span class="a" style="color:${a.color}">${a.emoji} ${esc(a.name)}</span> ${esc(e.msg)}`;
-  });
-  const statusLines = AGENTS.map((a) => {
-    const n = nextRun(a.schedule);
-    const state = a.schedule.type === "live" ? "online · listening for visitors"
-      : a.schedule.type === "event" ? "standing by for the next order"
-      : `next shift in <span data-countdown="${n.toISOString()}">${countdown(n)}</span>`;
-    return `<span class="t">status</span> <span class="a" style="color:${a.color}">${a.emoji} ${a.name}</span> ${state}`;
-  });
-  const queue = [...lines, `<span class="t">────</span> crew status`, ...statusLines];
-  el.innerHTML = "";
-  let i = 0;
-  consoleTimer = setInterval(() => {
-    if (!document.body.contains(el) || i >= queue.length) {
-      clearInterval(consoleTimer);
-      if (document.body.contains(el)) el.insertAdjacentHTML("beforeend", `<div class="console-line">$ <span class="cursor"></span></div>`);
-      return;
-    }
-    el.insertAdjacentHTML("beforeend", `<div class="console-line">${queue[i++]}</div>`);
-    while (el.children.length > 16) el.firstElementChild.remove();
-  }, 220);
-}
-
-/* ---------------- Views ---------------- */
-const productCard = (p) => `
-  <article class="card product-card">
-    ${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ""}
-    <div class="icon">${p.icon}</div>
+/* ---------------- Shared pieces ---------------- */
+const ticket = (p) => `
+  <article class="ticket paper" data-tilt>
+    <div class="ticket-top"><span>${woNumber(p)}</span><span>${esc(p.category)}</span></div>
+    ${p.badge ? `<span class="stamp ${p.id === "launch-bundle" ? "blue" : ""}">${esc(p.badge)}</span>` : ""}
     <h3><a href="#/product/${p.id}">${esc(p.name)}</a></h3>
     <p class="desc">${esc(p.short)}</p>
-    <div class="meta"><span>⚡ ${p.delivery}</span><span>🛡️ Money-back guarantee</span></div>
-    <div><span class="price">${money(p.price)}</span><span class="compare">${money(p.compareAt)}</span></div>
-    <div class="card-actions">
-      <a class="btn btn-ghost btn-small" href="#/product/${p.id}">Details</a>
-      <button class="btn btn-small" data-add="${p.id}">Add to cart</button>
+    <div class="perf"></div>
+    <div class="ticket-foot">
+      <div>
+        <span class="price">${money(p.price)}</span><span class="compare">${money(p.compareAt)}</span>
+        <div class="ready-by">Order now → ready by <b>${readyBy(p)}</b></div>
+      </div>
+      <button class="btn btn-ink btn-small" data-add="${p.id}">Add</button>
     </div>
   </article>`;
 
-function viewHome() {
+const moonMark = `<svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><path d="M21 5a11 11 0 1 0 6 18.5A12 12 0 0 1 21 5z" fill="currentColor"/></svg>`;
+const arrow = `<svg viewBox="0 0 80 64" aria-hidden="true"><path d="M74 6 C 50 10, 30 26, 14 52" stroke="#ffd59a" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M8 40 L 13 54 L 27 49" stroke="#ffd59a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function timecardRows(ops) {
+  const last = (id) => [...ops.log].reverse().find((e) => e.agent === id);
+  return AGENTS.map((a) => {
+    const l = last(a.id);
+    return `<tr>
+      <td>${a.name}<span class="role">${esc(a.role)}</span></td>
+      <td class="punch">${l ? punch(l.t) : "—"}</td>
+      <td>${l ? esc(l.msg) : `<span class="muted">${esc(a.does)}</span>`}</td>
+      <td class="next">${nextLabel(a)}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* ---------------- Views ---------------- */
+let disposeCity = () => {};
+
+async function viewHome() {
   const featured = ["launch-bundle", "brand-kit", "resume-glowup", "website-copy"].map(findProduct);
   app.innerHTML = `
-  <div class="wrap">
-    <section class="hero">
+  <section class="hero">
+    <div class="hero-fallback"></div>
+    <canvas id="city" aria-hidden="true"></canvas>
+    <div class="hero-note hand" aria-hidden="true">our office.<br>lights stay on.${arrow}</div>
+    <div class="wrap hero-inner">
+      <span class="neon rise">Open all night</span>
+      <h1 class="rise rise-2" style="margin-top:26px">Order tonight. <span class="accent">Wake up to it done.</span></h1>
+      <p class="hero-lead rise rise-3">Resumes, brand kits, website copy and content plans. Our crew drafts overnight, an editor reads every word, and it's in your inbox by morning (or within 48 hours, worst case).</p>
+      <div class="hero-ctas rise rise-4">
+        <a class="btn" href="#/shop">See the work orders</a>
+        <a class="btn btn-ghost" href="#/agents">Meet the night crew</a>
+      </div>
+      <div class="hero-facts"><span>From $49</span><span>24–48h turnaround</span><span>Read by a human</span><span>7-day refund</span></div>
+    </div>
+  </section>
+
+  <section class="section wrap">
+    <div class="section-head">
+      <h2>Tonight's<br><span class="accent">work orders</span></h2>
+      <p>Pick one, answer three questions, and go to bed. Every order is fixed-price, no calls required, with one free revision.</p>
+    </div>
+    <div class="board">${featured.map(ticket).join("")}</div>
+    <p style="margin-top:56px"><a class="btn btn-ghost" href="#/shop">All ${PRODUCTS.length} work orders</a></p>
+  </section>
+
+  <section class="section wrap" style="padding-top:0">
+    <div class="section-head"><h2>How a night<br>goes here</h2><p>Three steps. No meetings, and no ten-page questionnaire.</p></div>
+    <div class="process">
+      <div class="step"><div class="time">9:47 PM</div><h3>You clock out</h3><p>Pick a service, pay with card, Apple Pay, Google Pay, PayPal or Cash App Pay, and tell us about your business in a few sentences.</p></div>
+      <div class="step"><div class="time">9:48 PM</div><h3>We clock in</h3><p>Atlas reads your brief and builds the first full draft using frameworks we've tuned for each service.</p></div>
+      <div class="step"><div class="time">7:30 AM</div><h3>Coffee, then done</h3><p>An editor checks it line by line, fixes what a machine gets wrong, and sends it over. Reply if you want something changed.</p></div>
+    </div>
+  </section>
+
+  <section class="section wrap" style="padding-top:0">
+    <div class="note-split">
       <div>
-        <span class="eyebrow">AI-powered · Human-approved · Delivered in 24–48h</span>
-        <h1>Your business, <span class="accent">built overnight.</span></h1>
-        <p class="lead">Nightshift Studio is a crew of 8 AI agents and a human editor working around the clock on your brand, website copy, content and career. Order before bed and wake up to agency-quality work at a fraction of agency prices.</p>
-        <div class="hero-ctas">
-          <a class="btn" href="#/shop">Browse services →</a>
-          <a class="btn btn-ghost" href="#/agents">Meet the AI crew</a>
-        </div>
-        <div class="trust"><span>⚡ 24–48h delivery</span><span>🛡️ 7-day money-back guarantee</span><span>🔒 Secure Stripe checkout</span></div>
+        <span class="label">Straight answer</span>
+        <h2 style="margin-top:14px">Who actually does the work?</h2>
+        <p class="muted" style="margin-top:20px;max-width:30rem">Nobody likes finding out after they've paid, so here it is up front.</p>
       </div>
-      <div class="console" aria-label="Live agent operations console">
-        <div class="console-head"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>nightshift-ops — live</span></div>
-        <div class="console-body" id="console"></div>
+      <div class="letter paper">
+        <p>Software does the heavy lifting: research, structure and the first draft, at 3 a.m. if that's when you order.</p>
+        <p>Then a person reads it. Anything that sounds canned, anything that guesses at facts about you, anything that just isn't good gets rewritten before you see it.</p>
+        <p>That's why we can charge $99 for a brand kit that an agency quotes at $1,500, and still put our name on it.</p>
+        <div class="sig">— the Nightshift desk</div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="block" style="padding-top:20px">
-      <div class="stat-row">
-        <div class="card stat"><b class="accent">8</b><span class="muted">AI agents on shift</span></div>
-        <div class="card stat"><b class="accent">24/7</b><span class="muted">Always working</span></div>
-        <div class="card stat"><b class="accent">24–48h</b><span class="muted">Typical delivery</span></div>
-        <div class="card stat"><b class="accent">up to 60%</b><span class="muted">Less than agencies</span></div>
-      </div>
-    </section>
+  <section class="section wrap" style="padding-top:0">
+    <div class="timecard paper">
+      <div class="timecard-head"><h3>Tonight's timecard</h3><span class="mono small muted">Real punches from the crew's logs · times in your zone</span></div>
+      <div class="table-scroll"><table class="tc"><thead><tr><th>Crew</th><th>Last punch</th><th>What they did</th><th>Next shift</th></tr></thead><tbody id="tc-body"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody></table></div>
+    </div>
+  </section>
 
-    <section class="block">
-      <span class="eyebrow">Popular right now</span>
-      <h2>Pick a service. We'll handle the rest.</h2>
-      <div class="grid" style="margin-top:28px">${featured.map(productCard).join("")}</div>
-      <p style="text-align:center;margin-top:30px"><a class="btn btn-ghost" href="#/shop">See all ${PRODUCTS.length} services</a></p>
-    </section>
-
-    <section class="block steps">
-      <span class="eyebrow">How it works</span>
-      <h2>Three steps. Zero meetings.</h2>
-      <div class="grid" style="margin-top:28px">
-        <div class="card"><h3>Order & brief us</h3><p class="muted">Check out in under a minute with card, Apple Pay, Google Pay, PayPal or Cash App Pay, then answer two or three quick questions.</p></div>
-        <div class="card"><h3>The crew gets to work</h3><p class="muted">Atlas, our fulfillment agent, drafts your deliverable within minutes using your brief and proven frameworks.</p></div>
-        <div class="card"><h3>Human-polished delivery</h3><p class="muted">A human editor reviews and finalizes everything before it lands in your inbox, usually within 24–48 hours.</p></div>
-      </div>
-    </section>
-
-    <section class="block">
-      <div class="card" style="text-align:center;padding:50px 24px;background:linear-gradient(135deg,rgba(139,123,255,.18),rgba(49,225,201,.12))">
-        <span class="eyebrow">Founding-client pricing</span>
-        <h2>Be one of our first 100 clients.</h2>
-        <p class="muted" style="max-width:620px;margin:0 auto 24px">We just launched, so prices are at their lowest and every order gets extra attention. Use code <b>NIGHTOWL</b> for an extra 10% off.</p>
-        <a class="btn" href="#/product/launch-bundle">Get the Full Launch Bundle: ${money(findProduct("launch-bundle").price)}</a>
-      </div>
-    </section>
-  </div>`;
-  startConsole($("#console"));
+  <section class="section wrap" style="padding-top:0">
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:30px;align-items:center;justify-content:space-between;border-color:var(--lamp)">
+      <div style="max-width:40rem"><span class="label">First 100 clients</span><h2 style="margin-top:12px">Get in while the<br>lights are cheap.</h2><p class="muted" style="margin-top:14px">We're new, so prices are low and every order gets extra attention. Code <b class="accent">NIGHTOWL</b> takes another 10% off.</p></div>
+      <a class="btn" href="#/product/launch-bundle">Launch Bundle · ${money(findProduct("launch-bundle").price)}</a>
+    </div>
+  </section>`;
+  disposeCity = initCity($("#city"));
+  const ops = await loadOps();
+  const body = $("#tc-body");
+  if (body) body.innerHTML = timecardRows(ops);
 }
 
 function viewShop(params) {
@@ -175,51 +185,55 @@ function viewShop(params) {
   const active = params.get("c") || "All";
   const list = active === "All" ? PRODUCTS : PRODUCTS.filter((p) => p.category === active);
   app.innerHTML = `
-  <div class="wrap block">
-    <span class="eyebrow">All services</span>
-    <h1>Done-for-you, <span class="accent">done overnight.</span></h1>
-    <p class="muted">Every service is drafted by our AI crew and reviewed by a human before delivery.</p>
+  <section class="section wrap">
+    <div class="section-head">
+      <div><span class="label">The board</span><h1 style="margin-top:14px;font-size:clamp(3rem,7vw,5.6rem)">Work<br>orders</h1></div>
+      <p>Fixed prices, no calls, one free revision on everything. The "ready by" time on each ticket updates live from the moment you're looking at it.</p>
+    </div>
     <div class="filters">${cats.map((c) => `<a class="chip ${c === active ? "active" : ""}" href="#/shop?c=${encodeURIComponent(c)}">${c}</a>`).join("")}</div>
-    <div class="grid">${list.map(productCard).join("")}</div>
-  </div>`;
+    <div class="board">${list.map(ticket).join("")}</div>
+  </section>`;
 }
 
 function viewProduct(id) {
   const p = findProduct(id);
   if (!p) return viewNotFound();
-  document.title = `${p.name} | ${BRAND.name}`;
+  document.title = `${p.name} · ${BRAND.name}`;
   const related = PRODUCTS.filter((x) => x.id !== p.id && (x.category === p.category || x.id === "launch-bundle")).slice(0, 3);
   app.innerHTML = `
   <div class="wrap">
     <div class="product-page">
       <div>
-        <a href="#/shop" class="muted small">← All services</a>
-        <div style="font-size:3rem;margin-top:16px">${p.icon}</div>
-        <span class="eyebrow">${esc(p.category)} · delivered in ${p.delivery}</span>
-        <h1 style="font-size:clamp(2rem,4vw,3rem)">${esc(p.name)}</h1>
-        <p class="lead muted" style="font-size:1.15rem">${esc(p.short)}</p>
-        <h3 style="margin-top:30px">What you get</h3>
-        <ul class="check">${p.includes.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
-        <h3 style="margin-top:30px">How it's made</h3>
-        <p class="muted">After checkout you answer a short brief. Atlas, our fulfillment agent, builds a first draft using proven copywriting and strategy frameworks. A human editor then polishes and fact-checks it and emails you the final files.</p>
+        <a href="#/shop" class="back">← All work orders</a>
+        <div style="margin-top:28px"><span class="label">${woNumber(p)} · ${esc(p.category)}</span></div>
+        <h1>${esc(p.name)}</h1>
+        <p class="lead">${esc(p.short)}</p>
+        <h2 class="sub-h">What lands in your inbox</h2>
+        <ul class="checklist">${p.includes.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+        <h2 class="sub-h">How it gets made</h2>
+        <p class="muted" style="margin-top:16px;max-width:38rem">After you pay, you'll answer ${p.brief.length} short question${p.brief.length > 1 ? "s" : ""}. Atlas builds the full first draft from your answers. Then an editor goes through it line by line, rewrites anything generic, and flags anything we had to guess so you can fill it in. You get it within ${p.delivery}, with one free revision.</p>
       </div>
-      <aside class="card buy-box">
-        ${p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ""}
-        <div><span class="price" style="font-size:2.2rem">${money(p.price)}</span><span class="compare">${money(p.compareAt)}</span></div>
-        <p class="muted small">You save ${money(p.compareAt - p.price)} (${Math.round((1 - p.price / p.compareAt) * 100)}% off launch pricing)</p>
+      <aside class="receipt paper">
+        <h3>Nightshift</h3>
+        <div class="center small">${woNumber(p)} · ${esc(p.delivery)} turnaround</div>
+        <div class="big-price">${money(p.price)}</div>
+        <div class="center small">usually ${money(p.compareAt)} · you save ${money(p.compareAt - p.price)}</div>
+        <div class="rule"></div>
         <form id="buy-form">
+          <div class="small" style="font-weight:600">Extras (optional)</div>
           ${Object.values(ADDONS).map((a) => `
-            <label class="addon"><input type="checkbox" name="addon" value="${a.id}" /><span>${a.name}</span><b>+${money(a.price)}</b></label>`).join("")}
-          <button class="btn btn-block" style="margin-top:14px" name="action" value="buy">Buy now</button>
-          <button class="btn btn-ghost btn-block" style="margin-top:10px" name="action" value="add">Add to cart</button>
+            <label class="addon" style="text-transform:none;letter-spacing:0;color:var(--ink);font-size:.86rem;margin:0"><input type="checkbox" id="addon-${a.id}" name="addon" value="${a.id}" /><span>${a.name}</span><b>+${money(a.price)}</b></label>`).join("")}
+          <div class="rule"></div>
+          <div class="row"><span>Ready by</span><span><b>${readyBy(p)}</b></span></div>
+          <button class="btn btn-ink btn-block" style="margin-top:18px" name="action" value="buy">Order now</button>
+          <button class="btn btn-ghost btn-block" style="margin-top:10px;color:var(--ink);border-color:var(--ink)" name="action" value="add">Add to order</button>
         </form>
-        <div class="guarantee">🛡️ <span>7-day money-back guarantee. If the draft isn't right after one revision, you get a full refund.</span></div>
-        <div class="guarantee">💳 <span>Card, Apple Pay, Google Pay, PayPal and Cash App Pay accepted</span></div>
+        <div class="guarantee"><span>✓ One free revision included</span><span>✓ Full refund within 7 days if it's not right</span><span>✓ Card · Apple Pay · Google Pay · PayPal · Cash App Pay</span></div>
       </aside>
     </div>
-    <section class="block" style="padding-top:0">
-      <h2>Pairs well with</h2>
-      <div class="grid" style="margin-top:20px">${related.map(productCard).join("")}</div>
+    <section class="section" style="padding-top:0">
+      <div class="section-head"><h2>Goes well with</h2><p></p></div>
+      <div class="board">${related.map(ticket).join("")}</div>
     </section>
   </div>`;
   $("#buy-form").addEventListener("submit", (e) => {
@@ -230,58 +244,62 @@ function viewProduct(id) {
   });
 }
 
-function cartSummary() {
+function receiptTotals() {
   const sub = subtotal();
   const pct = Math.min(100, (sub / FREE_PERK_THRESHOLD) * 100);
-  const perk = sub >= FREE_PERK_THRESHOLD
-    ? `<p class="small" style="color:var(--accent2)">🎉 You unlocked free unlimited revisions on your whole order!</p>`
-    : `<p class="small muted">Add <b>${money(FREE_PERK_THRESHOLD - sub)}</b> more to unlock <b>free unlimited revisions</b> on everything.</p>`;
   return `
-    <div class="progress"><div style="width:${pct}%"></div></div>${perk}
-    <div class="summary-row"><span>Subtotal</span><span>${money(sub)}</span></div>
-    <div class="summary-row muted small"><span>Promo codes</span><span>Applied at payment</span></div>
-    <div class="summary-row total"><span>Total</span><span>${money(sub)}</span></div>`;
+    <div class="small">${sub >= FREE_PERK_THRESHOLD ? "<b>Unlocked:</b> free unlimited revisions on this order." : `Spend <b>${money(FREE_PERK_THRESHOLD - sub)}</b> more for free unlimited revisions.`}</div>
+    <div class="meter"><div style="width:${pct}%"></div></div>
+    <div class="rule"></div>
+    <div class="row"><span>Subtotal</span><span>${money(sub)}</span></div>
+    <div class="row small"><span>Promo code</span><span>at payment</span></div>
+    <div class="rule"></div>
+    <div class="row total"><span>TOTAL</span><span>${money(sub)}</span></div>`;
 }
 
 function viewCart() {
   if (!cart.length) {
-    app.innerHTML = `<div class="wrap block" style="text-align:center"><div style="font-size:3rem">🛒</div><h1>Your cart is empty</h1><p class="muted">The crew is ready when you are.</p><a class="btn" href="#/shop">Browse services</a></div>`;
+    app.innerHTML = `<div class="wrap empty"><div class="hand">nothing pinned up yet.</div><h1 style="font-size:clamp(2.6rem,6vw,4.4rem)">Your order is empty</h1><p class="muted" style="margin:18px 0 30px">The crew's ready whenever you are.</p><a class="btn" href="#/shop">See the work orders</a></div>`;
     return;
   }
   const inCart = new Set(cart.map((l) => l.id));
-  const upsell = !inCart.has("launch-bundle") && inCart.size >= 1
-    ? PRODUCTS.find((p) => p.id === "launch-bundle")
-    : PRODUCTS.find((p) => !inCart.has(p.id) && p.id !== "launch-bundle");
+  const upsell = !inCart.has("launch-bundle") ? findProduct("launch-bundle") : PRODUCTS.find((p) => !inCart.has(p.id));
   app.innerHTML = `
   <div class="wrap">
     <div class="cart-layout">
       <div>
-        <h1>Your cart</h1>
+        <span class="label">Your order</span>
+        <h1 style="font-size:clamp(3rem,7vw,5rem);margin-top:12px">On the board</h1>
+        <div style="margin-top:30px">
         ${cart.map((l) => { const p = findProduct(l.id); return `
           <div class="cart-item">
-            <div class="icon">${p.icon}</div>
-            <div class="info">
-              <b>${esc(p.name)}</b>
-              <div class="addons">${l.addons.map((a) => "+ " + ADDONS[a].name).join("<br>") || "Standard delivery: " + p.delivery}</div>
-              <div style="margin-top:8px;display:flex;gap:14px;align-items:center">
-                <div class="qty"><button data-qty="-1" data-key="${l.key}" aria-label="Decrease">−</button><span>${l.qty}</span><button data-qty="1" data-key="${l.key}" aria-label="Increase">+</button></div>
+            <div>
+              <span class="label">${woNumber(p)}</span>
+              <h3 style="margin-top:6px">${esc(p.name)}</h3>
+              <div class="addons">${l.addons.map((a) => "+ " + ADDONS[a].name).join("<br>") || "Standard turnaround · " + p.delivery}</div>
+              <div style="margin-top:14px;display:flex;gap:18px;align-items:center">
+                <div class="qty"><button data-qty="-1" data-key="${l.key}" aria-label="One fewer">−</button><span>${l.qty}</span><button data-qty="1" data-key="${l.key}" aria-label="One more">+</button></div>
                 <button class="link-btn" data-remove="${l.key}">Remove</button>
               </div>
             </div>
-            <b>${money(linePrice(l))}</b>
+            <div class="line-price">${money(linePrice(l))}</div>
           </div>`; }).join("")}
+        </div>
         ${upsell ? `
-        <div class="card upsell" style="margin-top:24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-          <div style="font-size:2rem">${upsell.icon}</div>
-          <div style="flex:1;min-width:200px"><b>Customers also add: ${esc(upsell.name)}</b><div class="muted small">${esc(upsell.short)}</div></div>
-          <button class="btn btn-small" data-add="${upsell.id}">Add for ${money(upsell.price)}</button>
+        <div class="upsell">
+          <div><span class="hand" style="font-size:1.5rem">most people starting out add this →</span><h3 style="margin-top:6px">${esc(upsell.name)}</h3><p class="muted small" style="margin-top:6px">${esc(upsell.short)}</p></div>
+          <button class="btn btn-small" data-add="${upsell.id}">Add · ${money(upsell.price)}</button>
         </div>` : ""}
       </div>
-      <aside class="card buy-box">
-        <h3>Order summary</h3>
-        ${cartSummary()}
-        <a class="btn btn-block" style="margin-top:16px" href="#/checkout">Checkout securely →</a>
-        <div class="secure-note">🔒 256-bit encrypted checkout powered by Stripe</div>
+      <aside class="receipt paper">
+        <h3>Nightshift</h3>
+        <div class="center small">${new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</div>
+        <div class="rule"></div>
+        ${cart.map((l) => `<div class="row small"><span>${l.qty}× ${esc(findProduct(l.id).name)}</span><span>${money(linePrice(l))}</span></div>`).join("")}
+        <div class="rule"></div>
+        ${receiptTotals()}
+        <a class="btn btn-ink btn-block" style="margin-top:22px" href="#/checkout">Check out</a>
+        <div class="center small" style="margin-top:12px">Encrypted checkout by Stripe</div>
       </aside>
     </div>
   </div>`;
@@ -295,36 +313,37 @@ function viewCheckout() {
   <div class="wrap">
     <form class="cart-layout" id="checkout-form">
       <div>
-        <a href="#/cart" class="muted small">← Back to cart</a>
-        <h1>Checkout</h1>
-        <p class="muted">Tell us where to send your work and give the crew a head start. You'll pay on the next screen.</p>
-        <div class="card">
-          <h3>Contact</h3>
-          <label for="email">Email (your files are delivered here)</label>
-          <input id="email" name="email" type="email" required value="${esc(saved.email || "")}" placeholder="you@email.com" />
-          <label for="name">Full name</label>
-          <input id="name" name="name" required value="${esc(saved.name || "")}" placeholder="Jordan Smith" />
+        <a href="#/cart" class="back">← Back to your order</a>
+        <h1 style="font-size:clamp(3rem,7vw,5rem);margin-top:20px">Brief the crew</h1>
+        <p class="muted" style="margin-top:14px;max-width:36rem">Where to send it, and a few sentences so the first draft is already about you. Payment's on the next screen.</p>
+        <div class="form-card">
+          <h3>Where it goes</h3>
+          <label for="email">Email · your files arrive here</label>
+          <input id="email" name="email" type="email" required value="${esc(saved.email || "")}" placeholder="you@email.com" autocomplete="email" />
+          <label for="name">Your name</label>
+          <input id="name" name="name" required value="${esc(saved.name || "")}" placeholder="Jordan Smith" autocomplete="name" />
         </div>
-        <div class="card" style="margin-top:20px">
-          <h3>Your brief</h3>
-          <p class="muted small">The more detail, the better your first draft. You can also reply to your confirmation email with files and links.</p>
+        <div class="form-card">
+          <h3>The brief</h3>
+          <p class="muted small" style="margin-top:8px">More detail means fewer guesses. You can also reply to your receipt with files or links later.</p>
           ${unique.map((p) => `
             <div class="brief-group">
-              <h4 style="margin:14px 0 0">${p.icon} ${esc(p.name)}</h4>
+              <h4>${esc(p.name)}</h4>
               ${p.brief.map((f) => { const n = `${p.id}__${f.key}`; const v = esc(saved[n] || ""); return `
                 <label for="${n}">${esc(f.label)}${f.required ? " *" : ""}</label>
                 ${f.type === "textarea" ? `<textarea id="${n}" name="${n}" ${f.required ? "required" : ""} maxlength="3000">${v}</textarea>` : `<input id="${n}" name="${n}" ${f.required ? "required" : ""} maxlength="300" value="${v}" />`}`; }).join("")}
             </div>`).join("")}
         </div>
       </div>
-      <aside class="card buy-box">
-        <h3>Order summary</h3>
-        ${cart.map((l) => `<div class="summary-row small"><span>${l.qty}× ${esc(findProduct(l.id).name)}${l.addons.length ? ` <span class="muted">(+${l.addons.length} add-on${l.addons.length > 1 ? "s" : ""})</span>` : ""}</span><span>${money(linePrice(l))}</span></div>`).join("")}
-        ${cartSummary()}
-        <button class="btn btn-block" style="margin-top:16px" id="pay-btn">Continue to secure payment →</button>
-        <div class="secure-note">💳 Card · Apple Pay · Google Pay · PayPal · Cash App Pay</div>
-        <div class="secure-note">🛡️ 7-day money-back guarantee</div>
-        <p class="muted small" style="text-align:center">By ordering you agree to our <a href="#/terms" style="text-decoration:underline">Terms</a> and <a href="#/refunds" style="text-decoration:underline">Refund policy</a>.</p>
+      <aside class="receipt paper">
+        <h3>Nightshift</h3>
+        <div class="center small">Order summary</div>
+        <div class="rule"></div>
+        ${cart.map((l) => `<div class="row small"><span>${l.qty}× ${esc(findProduct(l.id).name)}${l.addons.length ? ` + ${l.addons.length} extra${l.addons.length > 1 ? "s" : ""}` : ""}</span><span>${money(linePrice(l))}</span></div>`).join("")}
+        <div class="rule"></div>
+        ${receiptTotals()}
+        <button class="btn btn-ink btn-block" style="margin-top:22px" id="pay-btn">Continue to payment</button>
+        <div class="guarantee"><span>Card · Apple Pay · Google Pay · PayPal · Cash App Pay</span><span>7-day money-back guarantee</span><span>By ordering you agree to the <a href="#/terms">terms</a> and <a href="#/refunds">refund policy</a>.</span></div>
       </aside>
     </form>
   </div>`;
@@ -340,32 +359,35 @@ function viewCheckout() {
         body: JSON.stringify({ items: cart.map(({ id, qty, addons }) => ({ id, qty, addons })), email: data.email, name: data.name, brief: data }),
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok || !out.url) throw new Error(out.error || "Checkout is not configured yet.");
+      if (!res.ok || !out.url) throw new Error(out.error || "Checkout isn't available right now. Please try again in a minute.");
       location.href = out.url;
     } catch (err) {
       toast(err.message);
-      btn.disabled = false; btn.textContent = "Continue to secure payment →";
+      btn.disabled = false; btn.textContent = "Continue to payment";
     }
   });
 }
 
 async function viewSuccess() {
   const sid = new URLSearchParams(location.search).get("session_id");
-  app.innerHTML = `<div class="wrap block" style="text-align:center;max-width:680px"><div style="font-size:3.5rem">🌙</div><h1>Order confirmed. The crew is on it.</h1><p class="muted" id="order-info">Loading your order…</p>
-    <div class="card" style="text-align:left;margin-top:24px">
-      <h3>What happens next</h3>
-      <ol class="muted"><li>You'll get a Stripe receipt by email in a minute or two.</li><li>Atlas, our fulfillment agent, is drafting your deliverable right now.</li><li>A human editor reviews it, then we email you the final files within the delivery window.</li></ol>
-      <p class="muted small">Questions? Reply to your receipt or email ${BRAND.supportEmail}.</p>
-    </div><a class="btn" style="margin-top:24px" href="#/shop">Keep browsing</a></div>`;
+  app.innerHTML = `<div class="wrap" style="max-width:720px;padding-block:90px">
+    <span class="neon">Order received</span>
+    <h1 style="font-size:clamp(3rem,7vw,5rem);margin-top:26px">The crew's on it.</h1>
+    <p class="muted" style="margin-top:16px" id="order-info">Pulling up your order…</p>
+    <div class="letter paper" style="margin-top:40px;transform:rotate(.6deg)">
+      <p><b>What happens now</b></p>
+      <p>1. Stripe emails your receipt in the next minute or two.<br>2. Atlas is already drafting from your brief.<br>3. An editor reads and fixes it, then we email the finished files within the turnaround time.</p>
+      <p class="small muted">Questions or extra files? Reply to your receipt, or write to ${BRAND.supportEmail}.</p>
+    </div>
+    <p style="margin-top:40px"><a class="btn btn-ghost" href="#/shop">Back to the board</a></p></div>`;
   cart = []; saveCart(); store.set("ns_brief", {});
-  if (!sid) return ($("#order-info").textContent = "Thank you for your order!");
+  if (!sid) return ($("#order-info").textContent = "Thanks for your order.");
   try {
     const o = await (await fetch(`/api/order?session_id=${encodeURIComponent(sid)}`)).json();
     $("#order-info").innerHTML = o.paid
-      ? `Thanks${o.name ? ", " + esc(o.name.split(" ")[0]) : ""}! We received <b>${money(o.amount)}</b>. Confirmation sent to <b>${esc(o.email)}</b>.`
+      ? `Thanks${o.name ? ", " + esc(o.name.split(" ")[0]) : ""}. We've got <b>${money(o.amount)}</b> and your brief. Confirmation sent to <b>${esc(o.email)}</b>.`
       : "We're confirming your payment. You'll get an email as soon as it clears.";
-  } catch { $("#order-info").textContent = "Thank you for your order!"; }
-  // Strip the session id from the address bar so refreshes don't re-run this.
+  } catch { $("#order-info").textContent = "Thanks for your order."; }
   history.replaceState(null, "", "/#/success");
 }
 
@@ -373,78 +395,82 @@ async function viewAgents() {
   const ops = await loadOps();
   const last = (id) => [...ops.log].reverse().find((e) => e.agent === id);
   app.innerHTML = `
-  <div class="wrap block">
-    <span class="eyebrow">Meet the crew</span>
-    <h1>8 AI agents. <span class="accent">Zero days off.</span></h1>
-    <p class="muted" style="max-width:720px">Nightshift runs on a team of specialized AI agents. Each one has a job, a schedule and a log. This page shows their real activity: every line below was written by an agent when it finished a task.</p>
-    <div class="grid" style="margin-top:30px">
+  <section class="section wrap">
+    <div class="section-head">
+      <div><span class="label">The night crew</span><h1 style="margin-top:14px;font-size:clamp(3rem,7vw,5.6rem)">Eight agents.<br><span class="accent">One editor.</span></h1></div>
+      <p>Each agent has one job and a fixed shift. Every line on this page comes from their actual work logs. Nothing here is staged.</p>
+    </div>
+    <div class="crew-grid">
       ${AGENTS.map((a) => { const l = last(a.id); return `
-        <article class="card agent-card">
-          <div class="agent-top"><div class="avatar" style="background:${a.color}22">${a.emoji}</div><div><b>${a.name}</b><div class="role">${a.role}</div></div></div>
-          <span class="agent-status"><span class="dot ${a.schedule.type === "live" ? "" : "idle"}"></span>${a.schedule.type === "live" ? "Online" : "On schedule"}</span>
-          <p class="muted small" style="margin:0">${a.does}</p>
-          ${l ? `<p class="small" style="margin:0">Last: ${esc(l.msg)} <span class="muted">· ${ago(l.t)}</span></p>` : ""}
-          <div class="next">${agentNextLabel(a)}</div>
+        <article class="crew-card paper">
+          <div style="display:flex;align-items:center;gap:14px"><div class="mono-badge">${a.name[0]}</div><div><h3>${a.name}</h3><span class="label">${esc(a.role)}</span></div></div>
+          <p class="small" style="color:var(--ink-soft)">${esc(a.does)}</p>
+          ${l ? `<p class="small"><b>Last:</b> ${esc(l.msg)} · <span class="mono">${ago(l.t)}</span></p>` : ""}
+          <div class="meta">Next shift: ${nextLabel(a)}</div>
         </article>`; }).join("")}
     </div>
-    <h2 style="margin-top:60px">Activity log</h2>
-    <ul class="feed card">
-      ${[...ops.log].reverse().slice(0, 40).map((e) => { const a = agentById(e.agent); return `<li><span class="when">${ago(e.t)}</span><span>${a.emoji} <b style="color:${a.color}">${esc(a.name)}</b> ${esc(e.msg)}</span></li>`; }).join("") || `<li class="muted">The crew's first shift hasn't run yet. Check back soon.</li>`}
-    </ul>
-  </div>`;
+    <div class="timecard paper" style="margin-top:70px">
+      <div class="timecard-head"><h3>Shift log</h3><span class="mono small muted">Last 40 entries, newest first</span></div>
+      <ul class="feed">
+        ${[...ops.log].reverse().slice(0, 40).map((e) => `<li><span class="when">${punch(e.t)}</span><span><b>${esc(agentById(e.agent).name)}</b> ${esc(e.msg)}</span></li>`).join("") || `<li><span class="when">—</span><span class="muted">The crew's first shift hasn't run yet.</span></li>`}
+      </ul>
+    </div>
+  </section>`;
 }
 
 async function viewBlog() {
   let posts = [];
   try { posts = await (await fetch("/blog/posts.json", { cache: "no-store" })).json(); } catch {}
   app.innerHTML = `
-  <div class="wrap block">
-    <span class="eyebrow">The Night Notes</span>
-    <h1>Growth playbooks, <span class="accent">published daily.</span></h1>
-    <p class="muted">Practical guides on branding, marketing, careers and side hustles, researched and written by Scout and Quill.</p>
-    <div class="grid" style="margin-top:30px">
-      ${posts.map((p) => `
-        <a class="card post-card" href="/blog/${p.slug}.html">
-          <span class="muted small">${new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${esc(p.tag || "Guide")}</span>
-          <h3>${esc(p.title)}</h3><p class="muted small">${esc(p.excerpt)}</p><span class="accent small">Read →</span>
-        </a>`).join("") || `<p class="muted">The first article is being written. Check back tomorrow!</p>`}
+  <section class="section wrap">
+    <div class="section-head">
+      <div><span class="label">Night notes</span><h1 style="margin-top:14px;font-size:clamp(3rem,7vw,5.6rem)">One useful<br>thing a day</h1></div>
+      <p>Practical guides on branding, marketing, job hunting and selling online. Written overnight, published by morning.</p>
     </div>
-  </div>`;
+    ${posts.length ? `<div class="board">${posts.map((p) => `
+      <a class="post ticket paper" href="/blog/${p.slug}.html" data-tilt>
+        <div class="ticket-top"><span>${new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span><span>${esc(p.tag || "Guide")}</span></div>
+        <h3>${esc(p.title)}</h3><p class="desc">${esc(p.excerpt)}</p><span class="label">Read it →</span>
+      </a>`).join("")}</div>`
+    : `<div class="empty card"><div class="hand">the first one's being written tonight.</div><p class="muted">Check back tomorrow morning.</p></div>`}
+  </section>`;
 }
 
 const FAQS = [
-  ["Is the work done by AI or by people?", "Both. Our AI crew drafts every deliverable in minutes, then a human editor reviews, polishes and approves it before it's sent to you. That's how we deliver agency-quality work in 24–48 hours at a fraction of the price."],
-  ["How fast will I get my order?", "Most services are delivered within 24–48 hours (the Launch Bundle within 72). Add Rush delivery at checkout to get it within 12 hours."],
-  ["What payment methods do you accept?", "All major credit and debit cards, Apple Pay, Google Pay, PayPal and Cash App Pay, all processed securely by Stripe. We never see or store your card details."],
-  ["What if I don't like it?", "Every order includes one revision. If it's still not right, email us within 7 days of delivery for a full refund. No hard feelings."],
-  ["Do I own what you create?", "Yes. Once your order is paid, you have full commercial rights to everything we deliver."],
-  ["Do you have discount codes?", "Use NIGHTOWL for 10% off during our launch. Orders over $150 also get free unlimited revisions."],
-  ["Can I talk to someone?", "Nova, our AI concierge (bottom-right corner), answers instantly 24/7. For anything else, email " + BRAND.supportEmail + "."],
+  ["Is this AI or a person?", "Both, and we're upfront about it. Software writes the first draft fast. A person reads every page, rewrites what's off, and flags anything that needs your input before it's sent. You get agency-level work for a fraction of agency prices, without the wait."],
+  ["How fast is it, really?", "Most orders land within 24–48 hours; the Launch Bundle takes up to 72. Need it sooner? Add rush delivery and it's yours within 12 hours."],
+  ["How do I pay?", "Any major credit or debit card, Apple Pay, Google Pay, PayPal or Cash App Pay. Payment runs through Stripe, so we never see your card number."],
+  ["What if I don't like it?", "Tell us what's off and we'll revise it once for free. Still not right? Email us within 7 days of delivery and we'll refund you in full."],
+  ["Do I own what you make?", "Yes. Once you've paid, it's yours to use however you like, commercially included."],
+  ["Any discount codes?", "NIGHTOWL takes 10% off while we're new. Orders over $150 also get unlimited revisions for free."],
+  ["Can I talk to someone?", `Nova (bottom right) answers right away, day or night. For anything else, write to ${BRAND.supportEmail} and a person will reply.`],
 ];
 function viewFaq() {
-  app.innerHTML = `<div class="wrap block" style="max-width:820px"><span class="eyebrow">FAQ</span><h1>Questions? <span class="accent">Answered.</span></h1>
-    ${FAQS.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join("")}</div>`;
+  app.innerHTML = `<section class="section wrap" style="max-width:900px">
+    <span class="label">FAQ</span><h1 style="margin:14px 0 50px;font-size:clamp(3rem,7vw,5.6rem)">Fair questions</h1>
+    ${FAQS.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join("")}</section>`;
 }
 
 const LEGAL = {
-  terms: ["Terms of Service", `<p>By purchasing from ${BRAND.name} you agree to these terms. Services are delivered digitally to the email you provide at checkout within the stated delivery window, counted from when we receive your brief. Deliverables are drafted with the help of AI tools and reviewed by a human. You receive full commercial rights to delivered work once payment clears. You're responsible for checking deliverables (e.g. business names, legal or financial figures) before relying on them; we do not provide legal, financial or tax advice. We may refuse orders that request unlawful, hateful or deceptive content.</p>`],
-  privacy: ["Privacy Policy", `<p>We collect your name, email and the brief you submit so we can fulfill your order. Payments are handled by Stripe; we never see or store your full card details. Brief contents are processed by our AI providers solely to create your deliverable. We don't sell your data. Newsletter subscribers can unsubscribe at any time. To request deletion of your data, email ${BRAND.supportEmail}.</p>`],
-  refunds: ["Refund Policy", `<p>Every order includes one free revision. If you're still not satisfied, email ${BRAND.supportEmail} within 7 days of delivery for a full refund to your original payment method. Refunds for orders not yet started are available any time. Refunds typically appear in 5–10 business days.</p>`],
+  terms: ["Terms", `<p>By ordering from ${BRAND.name} you agree to these terms. Work is delivered by email to the address you give at checkout, within the stated turnaround, counted from when we receive your brief. Deliverables are drafted with AI tools and reviewed by a person. Once payment clears you have full commercial rights to what we deliver. Please check anything you rely on (business names, legal or financial figures) before using it; we don't give legal, financial or tax advice. We may decline orders that ask for unlawful, hateful or deceptive content.</p>`],
+  privacy: ["Privacy", `<p>We collect your name, email and the brief you write so we can do the work. Stripe handles payment; we never see or store your full card number. Your brief is processed by our AI providers only to create your deliverable. We don't sell your data. You can unsubscribe from emails at any time. To have your data deleted, write to ${BRAND.supportEmail}.</p>`],
+  refunds: ["Refunds", `<p>Every order includes one free revision. If you're still not happy, write to ${BRAND.supportEmail} within 7 days of delivery for a full refund to your original payment method. Orders we haven't started can be refunded any time. Refunds usually show up within 5–10 business days.</p>`],
 };
 function viewLegal(k) {
   const [title, body] = LEGAL[k];
-  app.innerHTML = `<div class="wrap prose"><h1>${title}</h1>${body}<p class="muted small">Last updated ${new Date().getFullYear()}. Replace this template with your own legal text before launch.</p></div>`;
+  app.innerHTML = `<div class="wrap prose"><span class="label">Small print</span><h1>${title}</h1>${body}<p class="muted small">Template text. Replace with your own before launch.</p></div>`;
 }
 function viewNotFound() {
-  app.innerHTML = `<div class="wrap block" style="text-align:center"><h1>Lost in the night 🌌</h1><p class="muted">That page doesn't exist.</p><a class="btn" href="#/">Go home</a></div>`;
+  app.innerHTML = `<div class="wrap empty"><div class="hand">wrong door.</div><h1 style="font-size:clamp(2.6rem,6vw,4.4rem)">Nothing here</h1><p class="muted" style="margin:18px 0 30px">That page doesn't exist, or it moved.</p><a class="btn" href="#/">Back to the front</a></div>`;
 }
 
 /* ---------------- Router ---------------- */
 function route() {
+  disposeCity(); disposeCity = () => {};
   const [path, qs] = (location.hash.slice(1) || "/").split("?");
   const params = new URLSearchParams(qs);
   const parts = path.split("/").filter(Boolean);
-  document.title = `${BRAND.name}: done-for-you brand, copy & career services`;
+  document.title = BRAND.name;
   document.querySelectorAll(".links a").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#/" + (parts[0] || "")));
   $("#navlinks").classList.remove("open");
   window.scrollTo(0, 0);
@@ -466,7 +492,7 @@ function route() {
 /* ---------------- Global events ---------------- */
 document.addEventListener("click", (e) => {
   const add = e.target.closest("[data-add]");
-  if (add) { addToCart(add.dataset.add); if (location.hash.startsWith("#/cart")) viewCart(); }
+  if (add) { e.preventDefault(); addToCart(add.dataset.add); if (location.hash.startsWith("#/cart")) viewCart(); }
   const q = e.target.closest("[data-qty]");
   if (q) {
     const l = cart.find((x) => x.key === q.dataset.key);
@@ -477,7 +503,27 @@ document.addEventListener("click", (e) => {
   const rm = e.target.closest("[data-remove]");
   if (rm) { cart = cart.filter((x) => x.key !== rm.dataset.remove); saveCart(); viewCart(); }
 });
-$("#menu-btn").addEventListener("click", () => $("#navlinks").classList.toggle("open"));
+
+// Tickets tilt toward the pointer in 3D.
+if (matchMedia("(hover: hover) and (prefers-reduced-motion: no-preference)").matches) {
+  document.addEventListener("pointermove", (e) => {
+    const t = e.target.closest?.("[data-tilt]");
+    document.querySelectorAll("[data-tilt].tilting").forEach((el) => {
+      if (el !== t) { el.classList.remove("tilting"); el.style.removeProperty("--rx"); el.style.removeProperty("--ry"); }
+    });
+    if (!t) return;
+    const r = t.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+    t.classList.add("tilting");
+    t.style.setProperty("--rx", `${(-y * 10).toFixed(2)}deg`);
+    t.style.setProperty("--ry", `${(x * 12).toFixed(2)}deg`);
+  }, { passive: true });
+}
+
+$("#menu-btn").addEventListener("click", (e) => {
+  const open = $("#navlinks").classList.toggle("open");
+  e.currentTarget.setAttribute("aria-expanded", open);
+});
 $("#year").textContent = new Date().getFullYear();
 
 $("#newsletter").addEventListener("submit", async (e) => {
@@ -486,21 +532,21 @@ $("#newsletter").addEventListener("submit", async (e) => {
   try {
     const r = await fetch("/api/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
     if (!r.ok) throw 0;
-    toast("You're in! Check your inbox 🌙"); e.target.reset();
-  } catch { toast("Couldn't subscribe right now. Please try again later."); }
+    toast("You're on the list. First letter goes out Sunday."); e.target.reset();
+  } catch { toast("Couldn't sign you up just now. Try again in a minute."); }
 });
 
 /* ---------------- Nova chat ---------------- */
 const chatLog = $("#chat-log");
 let chatHistory = store.get("ns_chat", []);
 const addMsg = (role, text) => {
-  chatLog.insertAdjacentHTML("beforeend", `<div class="msg ${role === "user" ? "me" : "bot"}">${esc(text).replace(/\[([^\]]+)\]\((#\/[^)]+)\)/g, '<a href="$2" style="text-decoration:underline">$1</a>')}</div>`);
+  chatLog.insertAdjacentHTML("beforeend", `<div class="msg ${role === "user" ? "me" : "bot"}">${esc(text).replace(/\[([^\]]+)\]\((#\/[^)]+)\)/g, '<a href="$2">$1</a>')}</div>`);
   chatLog.scrollTop = chatLog.scrollHeight;
 };
 function openChat() {
   $("#chat").hidden = false;
   if (!chatLog.children.length) {
-    addMsg("assistant", "Hey! I'm Nova, Nightshift's AI concierge 🌙 Tell me what you're working on (a new business, a job hunt, more sales…) and I'll point you to the right service.");
+    addMsg("assistant", "Hi, I'm Nova, the front desk. What are you working on? A new business, a job hunt, more sales? I'll point you to the right work order.");
     chatHistory.forEach((m) => addMsg(m.role, m.content));
   }
   $("#chat-input").focus();
@@ -511,18 +557,18 @@ $("#chat-close").addEventListener("click", () => ($("#chat").hidden = true));
 // Offline fallback so Nova still helps if the AI endpoint isn't configured.
 function novaFallback(text) {
   const t = text.toLowerCase();
-  const pick = (id) => { const p = findProduct(id); return `${p.name} (${money(p.price)}, ${p.delivery}): ${p.short} [View it](#/product/${p.id})`; };
-  if (/resume|job|linkedin|career|interview/.test(t)) return "Sounds like the " + pick("resume-glowup");
-  if (/brand|logo|name|start|new business|launch/.test(t)) return "For a new business I'd recommend the " + pick("launch-bundle") + "\n\nOr start smaller with the " + pick("brand-kit");
+  const pick = (id) => { const p = findProduct(id); return `${p.name} (${money(p.price)}, ready in ${p.delivery}). ${p.short} [Take a look](#/product/${p.id})`; };
+  if (/resume|job|linkedin|career|interview|hire/.test(t)) return "Sounds like the " + pick("resume-glowup");
+  if (/brand|logo|name|start|new business|launch/.test(t)) return "If you're starting from zero, the " + pick("launch-bundle") + "\n\nIf you'd rather start small: " + pick("brand-kit");
   if (/social|instagram|tiktok|content|post/.test(t)) return "Try the " + pick("content-30");
   if (/website|copy|landing|homepage/.test(t)) return "You want the " + pick("website-copy");
-  if (/email|newsletter|list/.test(t)) return "Check out the " + pick("email-sequence");
-  if (/etsy|shopify|listing|amazon/.test(t)) return "Perfect fit: the " + pick("etsy-shop");
+  if (/email|newsletter|list/.test(t)) return "Have a look at the " + pick("email-sequence");
+  if (/etsy|shopify|listing|amazon/.test(t)) return "Good fit: the " + pick("etsy-shop");
   if (/plan|investor|loan|projection/.test(t)) return "You need the " + pick("business-plan");
-  if (/pay|paypal|cash ?app|apple|card/.test(t)) return "We accept all major cards, Apple Pay, Google Pay, PayPal and Cash App Pay through secure Stripe checkout.";
-  if (/refund|guarantee/.test(t)) return "Every order includes a revision and a 7-day money-back guarantee.";
-  if (/discount|code|coupon|deal/.test(t)) return "Use code NIGHTOWL at checkout for 10% off, and orders over $150 get free unlimited revisions!";
-  return "I can help you pick the perfect service! Are you launching a business, growing an existing one, or job hunting? You can also [browse everything](#/shop).";
+  if (/pay|paypal|cash ?app|apple|card/.test(t)) return "Any major card, Apple Pay, Google Pay, PayPal or Cash App Pay, all through Stripe's secure checkout.";
+  if (/refund|guarantee/.test(t)) return "Every order gets one free revision, and if it's still not right, a full refund within 7 days.";
+  if (/discount|code|coupon|deal/.test(t)) return "Code NIGHTOWL takes 10% off, and orders over $150 get free unlimited revisions.";
+  return "Happy to help you pick. Are you starting a business, growing one, or job hunting? Or [browse the board](#/shop).";
 }
 $("#chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -541,13 +587,7 @@ $("#chat-form").addEventListener("submit", async (e) => {
   store.set("ns_chat", chatHistory.slice(-20));
 });
 
-// Live pill reflects whether the agents have reported in within the last day.
-loadOps().then((ops) => {
-  const latest = ops.log.at(-1);
-  const fresh = latest && Date.now() - new Date(latest.t) < 26 * 3600 * 1000;
-  $("#live-text").textContent = fresh ? `Agents online · last task ${ago(latest.t)}` : "Agents online";
-});
-
 window.addEventListener("hashchange", route);
 renderCartCount();
+tick();
 route();

@@ -39,22 +39,22 @@ const page = `<!doctype html>
 <meta name="description" content="${esc(article.excerpt)}">
 <link rel="canonical" href="${url}">
 <meta property="og:title" content="${esc(article.title)}"><meta property="og:description" content="${esc(article.excerpt)}"><meta property="og:type" content="article"><meta property="og:url" content="${url}">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Caveat:wght@500;700&family=IBM+Plex+Mono:wght@500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/styles.css">
 <script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@type": "Article", headline: article.title, description: article.excerpt, datePublished: today(), author: { "@type": "Organization", name: "Nightshift Studio" }, publisher: { "@type": "Organization", name: "Nightshift Studio" } })}</script>
 </head><body>
-<header class="nav"><a href="/#/" class="logo"><span class="moon">🌙</span> Nightshift<span class="accent">Studio</span></a><nav class="links" style="display:flex"><a href="/#/shop">Services</a><a href="/#/blog">Blog</a></nav><a href="/#/cart" class="cart-btn">🛒 Cart</a></header>
+<header class="nav"><a href="/#/" class="logo">Night<span class="accent">shift</span></a><nav class="links" style="display:flex"><a href="/#/shop">Work orders</a><a href="/#/blog">Night notes</a></nav><div class="nav-actions"><a href="/#/cart" class="cart-btn">Order</a></div></header>
 <main class="wrap"><article class="prose">
-<p class="muted small">${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} · ${esc(article.tag || "Guide")} · Written by Quill, our AI writer, and edited by the Nightshift team</p>
+<p class="label">${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} · ${esc(article.tag || "Guide")} · Written by Quill, our AI writer, and edited by the Nightshift team</p>
 <h1>${esc(article.title)}</h1>
 ${markdown(article.markdown)}
-<div class="card" style="margin-top:40px;text-align:center">
-  <div style="font-size:2.4rem">${product.icon}</div><h3>Want this done for you tonight?</h3>
-  <p class="muted">${esc(product.short)}</p>
-  <a class="btn" href="/#/product/${product.id}">Get the ${esc(product.name)}: ${money(product.price)}</a>
+<div class="letter paper" style="margin-top:50px">
+  <p class="label">Rather not do it yourself?</p><h3 style="color:var(--ink);font-size:2rem;margin:10px 0">${esc(product.name)}</h3>
+  <p>${esc(product.short)} Ready in ${product.delivery}.</p>
+  <p style="margin-top:20px"><a class="btn btn-ink" href="/#/product/${product.id}">Order it tonight · ${money(product.price)}</a></p>
 </div>
 </article></main>
-<footer class="footer"><p class="muted small">© ${new Date().getFullYear()} Nightshift Studio · <a href="/#/">Home</a> · <a href="/#/shop">Services</a> · <a href="/#/blog">More articles</a></p></footer>
+<footer class="footer"><p>© ${new Date().getFullYear()} Nightshift Studio · <a href="/#/">Home</a> · <a href="/#/shop">Services</a> · <a href="/#/blog">More articles</a></p></footer>
 </body></html>
 `;
 await writeFile(join(PUBLIC, "blog", `${slug}.html`), page);

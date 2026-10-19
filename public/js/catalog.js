@@ -24,7 +24,7 @@ export const PRODUCTS = [
     compareAt: 9900,
     delivery: "24 hours",
     icon: "📄",
-    badge: "Best seller",
+    badge: "Fastest turnaround",
     short: "A recruiter-ready resume, a rewritten LinkedIn profile, and a cover-letter template.",
     includes: [
       "ATS-optimized resume rewrite (Word + PDF-ready text)",
@@ -45,7 +45,7 @@ export const PRODUCTS = [
     compareAt: 24900,
     delivery: "48 hours",
     icon: "🎨",
-    badge: "Most popular",
+    badge: "Start here",
     short: "Name ideas, tagline, color palette, fonts, voice guide and a logo creative brief.",
     includes: [
       "15 name ideas with domain-friendly variations",
