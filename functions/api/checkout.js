@@ -58,6 +58,9 @@ export async function onRequestPost({ request, env }) {
         // No payment_method_types → Stripe shows every method enabled in your Dashboard
         // (cards, Apple Pay, Google Pay, Cash App Pay, PayPal, Link, …).
         allow_promotion_codes: "true",
+        // Stripe turns on "Managed Payments" (Stripe as merchant of record, extra fees, tax codes required)
+        // by default on newer accounts. We use standard Checkout pricing instead.
+        managed_payments: { enabled: "false" },
         billing_address_collection: "auto",
         metadata,
         payment_intent_data: { metadata: { customer_name: metadata.customer_name, items: metadata.items } },
