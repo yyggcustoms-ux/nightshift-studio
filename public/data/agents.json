@@ -1,5 +1,14 @@
 {
   "log": [
-    { "t": "2026-10-19T09:07:57Z", "agent": "sentinel", "msg": "Nightshift crew deployed. 8 agents reporting for duty" }
+    {
+      "t": "2026-10-19T09:07:57Z",
+      "agent": "sentinel",
+      "msg": "Nightshift crew deployed. 8 agents reporting for duty"
+    },
+    {
+      "t": "2026-10-20T00:31:26.711Z",
+      "agent": "sentinel",
+      "msg": "All 4 health checks passed (270ms)"
+    }
   ]
 }
