@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Sitemap: https://nightshift-studio-9in.pages.dev/sitemap.xml
