@@ -44,6 +44,11 @@
       "t": "2026-10-20T13:37:12.919Z",
       "agent": "beacon",
       "msg": "Rebuilt sitemap with 2 pages"
+    },
+    {
+      "t": "2026-10-20T18:28:53.172Z",
+      "agent": "sentinel",
+      "msg": "All 4 health checks passed (310ms)"
     }
   ]
 }
