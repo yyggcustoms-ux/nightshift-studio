@@ -1,11 +1,6 @@
 {
   "log": [
     {
-      "t": "2026-10-22T00:30:22.623Z",
-      "agent": "sentinel",
-      "msg": "All 4 health checks passed (409ms)"
-    },
-    {
       "t": "2026-10-22T06:32:14.393Z",
       "agent": "sentinel",
       "msg": "All 4 health checks passed (266ms)"
@@ -1499,6 +1494,11 @@
       "t": "2026-11-25T22:12:14.294Z",
       "agent": "beacon",
       "msg": "Rebuilt sitemap with 38 pages"
+    },
+    {
+      "t": "2026-11-26T07:24:20.757Z",
+      "agent": "sentinel",
+      "msg": "All 4 health checks passed (484ms)"
     }
   ]
 }
