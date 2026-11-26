@@ -1,11 +1,6 @@
 {
   "log": [
     {
-      "t": "2026-10-22T06:32:14.393Z",
-      "agent": "sentinel",
-      "msg": "All 4 health checks passed (266ms)"
-    },
-    {
       "t": "2026-10-22T12:22:29.867Z",
       "agent": "ledger",
       "msg": "Sent the daily revenue report and today's growth plan to the owner"
@@ -1499,6 +1494,11 @@
       "t": "2026-11-26T07:24:20.757Z",
       "agent": "sentinel",
       "msg": "All 4 health checks passed (484ms)"
+    },
+    {
+      "t": "2026-11-26T20:43:19.630Z",
+      "agent": "ledger",
+      "msg": "Sent the daily revenue report and today's growth plan to the owner"
     }
   ]
 }
